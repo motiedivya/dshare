@@ -30,7 +30,7 @@ DShare is a Django-based web application that allows users to share files and te
 1. **Clone the repository**:
 
     ```bash
-    git clone https://github.com/yourusername/dshare.git
+    git clone https://github.com/divyesh1099/dshare.git
     cd dshare
     ```
 
