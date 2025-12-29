@@ -6,6 +6,10 @@
 </head>
 <body class="bg-black text-white font-sans">
     <div class="min-h-screen flex items-center justify-center">
+        <div id="mode-watermark" class="hidden pointer-events-none fixed inset-0 flex items-center justify-center text-white text-6xl font-bold opacity-5 select-none">
+            PUBLIC
+        </div>
+        <div id="toast" class="hidden fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white text-black px-4 py-2 rounded opacity-90 text-sm select-none"></div>
         <div id="upload-section" class="hidden">
             <form id="upload-form" method="post" enctype="multipart/form-data" action="/upload/">
                 {% csrf_token %}
@@ -19,9 +23,243 @@
         let keyword = '';
         const specialKeywordUpload = 'divya';
         const specialKeywordDownload = 'moti';
+        const COMMAND_PREFIXES = ['/', '\\'];
+
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+            return '';
+        }
+
+        function toast(message, ms = 1800) {
+            const el = document.getElementById('toast');
+            el.textContent = message;
+            el.classList.remove('hidden');
+            clearTimeout(el._t);
+            el._t = setTimeout(() => el.classList.add('hidden'), ms);
+        }
+
+        function base64urlToUint8Array(base64url) {
+            const padding = '='.repeat((4 - (base64url.length % 4)) % 4);
+            const base64 = (base64url + padding).replace(/-/g, '+').replace(/_/g, '/');
+            const raw = atob(base64);
+            const out = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+            return out;
+        }
+
+        function uint8ArrayToBase64url(bytes) {
+            let binary = '';
+            for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+            const base64 = btoa(binary);
+            return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+        }
+
+        function bufferToBase64url(buf) {
+            return uint8ArrayToBase64url(new Uint8Array(buf));
+        }
+
+        function preformatCreateOptions(opts) {
+            const out = { ...opts };
+            out.challenge = base64urlToUint8Array(out.challenge);
+            out.user = { ...out.user, id: base64urlToUint8Array(out.user.id) };
+            if (out.excludeCredentials) {
+                out.excludeCredentials = out.excludeCredentials.map((c) => ({ ...c, id: base64urlToUint8Array(c.id) }));
+            }
+            return out;
+        }
+
+        function preformatGetOptions(opts) {
+            const out = { ...opts };
+            out.challenge = base64urlToUint8Array(out.challenge);
+            if (out.allowCredentials) {
+                out.allowCredentials = out.allowCredentials.map((c) => ({ ...c, id: base64urlToUint8Array(c.id) }));
+            }
+            return out;
+        }
+
+        function credentialToJSON(cred) {
+            if (!cred) return null;
+            const response = cred.response || {};
+            const clientExtensionResults = cred.getClientExtensionResults ? cred.getClientExtensionResults() : {};
+            const rawId = bufferToBase64url(cred.rawId);
+            const obj = {
+                id: rawId,
+                rawId,
+                type: cred.type,
+                authenticatorAttachment: cred.authenticatorAttachment || null,
+                clientExtensionResults,
+                response: {
+                    clientDataJSON: bufferToBase64url(response.clientDataJSON),
+                },
+            };
+            if (response.attestationObject) {
+                obj.response.attestationObject = bufferToBase64url(response.attestationObject);
+            }
+            if (response.authenticatorData) {
+                obj.response.authenticatorData = bufferToBase64url(response.authenticatorData);
+            }
+            if (response.signature) {
+                obj.response.signature = bufferToBase64url(response.signature);
+            }
+            if (response.userHandle) {
+                obj.response.userHandle = bufferToBase64url(response.userHandle);
+            }
+            return obj;
+        }
+
+        async function postJSON(url, data) {
+            const csrftoken = getCookie('csrftoken');
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrftoken,
+                },
+                body: JSON.stringify(data || {}),
+            });
+            return res;
+        }
+
+        async function refreshMode() {
+            try {
+                const res = await fetch('/api/auth/me/', { method: 'GET' });
+                const data = await res.json();
+                const isPublic = !(data && data.authenticated);
+                document.getElementById('mode-watermark').classList.toggle('hidden', !isPublic);
+            } catch (_) {
+                document.getElementById('mode-watermark').classList.remove('hidden');
+            }
+        }
+
+        async function commandRegister() {
+            const email = prompt('email');
+            if (!email) return;
+            const password = prompt('pin (optional)') || '';
+            if (!password && !window.PublicKeyCredential) {
+                toast('fail');
+                return;
+            }
+            if (password) {
+                const confirm = prompt('pin again') || '';
+                if (confirm !== password) {
+                    toast('fail');
+                    return;
+                }
+            }
+            const res = await postJSON('/api/auth/register/', { email, password });
+            toast(res.ok ? 'sent' : 'fail');
+        }
+
+        async function tryPasskeyLogin() {
+            if (!window.PublicKeyCredential) return false;
+            try {
+                const begin = await postJSON('/api/webauthn/auth/begin/', {});
+                if (!begin.ok) return false;
+                const options = await begin.json();
+                const publicKey = preformatGetOptions(options.publicKey);
+                const assertion = await navigator.credentials.get({ publicKey });
+                const payload = credentialToJSON(assertion);
+                const complete = await postJSON('/api/webauthn/auth/complete/', payload);
+                if (!complete.ok) return false;
+                const out = await complete.json();
+                return out && out.status === 'ok';
+            } catch (_) {
+                return false;
+            }
+        }
+
+        async function commandLogin() {
+            const passkeyOk = await tryPasskeyLogin();
+            if (passkeyOk) {
+                toast('ok');
+                await refreshMode();
+                return;
+            }
+
+            const email = prompt('email');
+            if (!email) return;
+            const password = prompt('pin');
+            if (!password) return;
+            const res = await postJSON('/api/auth/login/', { email, password });
+            toast(res.ok ? 'ok' : 'fail');
+            if (res.ok) await refreshMode();
+        }
+
+        async function commandLogout() {
+            const res = await postJSON('/api/auth/logout/', {});
+            toast(res.ok ? 'ok' : 'fail');
+            await refreshMode();
+        }
+
+        async function commandPasskey() {
+            if (!window.PublicKeyCredential) {
+                toast('fail');
+                return;
+            }
+            try {
+                const begin = await postJSON('/api/webauthn/register/begin/', {});
+                if (!begin.ok) {
+                    toast('fail');
+                    return;
+                }
+                const options = await begin.json();
+                const publicKey = preformatCreateOptions(options.publicKey);
+                const cred = await navigator.credentials.create({ publicKey });
+                const payload = credentialToJSON(cred);
+                const complete = await postJSON('/api/webauthn/register/complete/', payload);
+                toast(complete.ok ? 'ok' : 'fail');
+            } catch (_) {
+                toast('fail');
+            }
+        }
+
+        async function commandCopy() {
+            try {
+                const res = await fetch('/api/share/text/', { method: 'GET' });
+                const data = await res.json();
+                const text = (data && data.text) ? data.text : '';
+                await navigator.clipboard.writeText(text);
+                toast('ok');
+            } catch (_) {
+                toast('fail');
+            }
+        }
+
+        async function commandClear() {
+            try {
+                await postJSON('/api/share/clear/', {});
+                try { await navigator.clipboard.writeText(''); } catch (_) {}
+                toast('ok');
+            } catch (_) {
+                toast('fail');
+            }
+        }
+
+        async function commandHelp() {
+            toast('/register /login /logout /passkey /copy /paste /clear', 3500);
+        }
+
+        async function handleCommand(cmd) {
+            if (cmd === 'register') return commandRegister();
+            if (cmd === 'login') return commandLogin();
+            if (cmd === 'logout') return commandLogout();
+            if (cmd === 'passkey') return commandPasskey();
+            if (cmd === 'copy') return commandCopy();
+            if (cmd === 'paste') return pasteText();
+            if (cmd === 'clear') return commandClear();
+            if (cmd === 'help' || cmd === '?') return commandHelp();
+            toast('fail');
+        }
 
         document.addEventListener('keydown', function (e) {
+            const active = document.activeElement;
+            if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+            if (e.key.length !== 1) return;
             keyword += e.key.toLowerCase();
+            if (keyword.length > 64) keyword = keyword.slice(-64);
+
             if (keyword.includes(specialKeywordUpload)) {
                 document.getElementById('upload-section').classList.remove('hidden');
                 keyword = '';  // Reset keyword
@@ -30,21 +268,37 @@
                 window.location.href = '/download/';
                 keyword = '';  // Reset keyword
             }
+
+            for (const prefix of COMMAND_PREFIXES) {
+                const idx = keyword.lastIndexOf(prefix);
+                if (idx === -1) continue;
+                const maybe = keyword.slice(idx + 1);
+                const known = ['register', 'login', 'logout', 'passkey', 'copy', 'paste', 'clear', 'help', '?'];
+                if (known.includes(maybe)) {
+                    keyword = '';
+                    handleCommand(maybe);
+                    break;
+                }
+            }
         });
 
         async function pasteText() {
-            const text = await navigator.clipboard.readText();
-            const formData = new FormData();
-            formData.append('text', text);
-            fetch('/upload/', {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'X-CSRFToken': '{{ csrf_token }}'
-                }
-            }).then(response => response.json()).then(data => {
-                alert(data.status);
-            });
+            try {
+                const text = await navigator.clipboard.readText();
+                const formData = new FormData();
+                formData.append('text', text);
+                const response = await fetch('/upload/', {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken'),
+                    }
+                });
+                const data = await response.json();
+                toast(data.status === 'ok' ? 'ok' : 'fail');
+            } catch (_) {
+                toast('fail');
+            }
         }
 
         document.getElementById('upload-form').addEventListener('submit', function (e) {
@@ -54,12 +308,18 @@
                 method: 'POST',
                 body: formData,
                 headers: {
-                    'X-CSRFToken': '{{ csrf_token }}'
+                    'X-CSRFToken': getCookie('csrftoken'),
                 }
             }).then(response => response.json()).then(data => {
-                alert(data.status);
+                toast(data.status === 'ok' ? 'ok' : 'fail');
             });
         });
+
+        refreshMode();
+
+        if (new URLSearchParams(window.location.search).get('setup') === 'passkey') {
+            setTimeout(() => commandPasskey(), 300);
+        }
     </script>
 </body>
 </html>

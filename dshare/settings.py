@@ -132,3 +132,43 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# Auth/session behavior
+# Keep sessions for 30 days (sliding) so verified users can just visit and type.
+SESSION_COOKIE_AGE = int(os.getenv("DSHARE_SESSION_COOKIE_AGE", str(60 * 60 * 24 * 30)))
+SESSION_SAVE_EVERY_REQUEST = True
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+
+# Email (dev defaults to console backend)
+EMAIL_BACKEND = os.getenv(
+    "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "dshare@localhost")
+EMAIL_HOST = os.getenv("EMAIL_HOST", "localhost")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "1") == "1"
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "0") == "1"
+EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "10"))
+
+# DShare knobs
+DSHARE_EMAIL_TOKEN_MAX_AGE_SECONDS = int(
+    os.getenv("DSHARE_EMAIL_TOKEN_MAX_AGE_SECONDS", str(60 * 60 * 24))
+)
+DSHARE_USER_TTL_SECONDS = int(
+    os.getenv("DSHARE_USER_TTL_SECONDS", str(60 * 60 * 24 * 30))
+)
+DSHARE_PUBLIC_TTL_SECONDS = int(
+    os.getenv("DSHARE_PUBLIC_TTL_SECONDS", str(60 * 60 * 24))
+)
+DSHARE_USER_MAX_UPLOAD_BYTES = int(
+    os.getenv("DSHARE_USER_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024))
+)
+DSHARE_PUBLIC_MAX_UPLOAD_BYTES = int(
+    os.getenv("DSHARE_PUBLIC_MAX_UPLOAD_BYTES", str(10 * 1024 * 1024))
+)
+DSHARE_PUBLIC_UPLOAD_LIMIT = int(os.getenv("DSHARE_PUBLIC_UPLOAD_LIMIT", "100"))
+DSHARE_PUBLIC_CLEAR_LIMIT = int(os.getenv("DSHARE_PUBLIC_CLEAR_LIMIT", "100"))
+DSHARE_RP_NAME = os.getenv("DSHARE_RP_NAME", "DShare")
+DSHARE_RP_ID = os.getenv("DSHARE_RP_ID", "")

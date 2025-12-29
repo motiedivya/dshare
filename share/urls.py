@@ -1,11 +1,53 @@
 from django.urls import path
-from .views import login_view, home_view, upload_view, download_view
+from .views import (
+    api_auth_logout,
+    api_auth_me,
+    api_auth_password_login,
+    api_auth_register,
+    api_share_clear,
+    api_share_text,
+    api_webauthn_auth_begin,
+    api_webauthn_auth_complete,
+    api_webauthn_register_begin,
+    api_webauthn_register_complete,
+    download_view,
+    home_view,
+    upload_view,
+    verify_email_view,
+)
 from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
-    path('', login_view, name='login'),
-    path('home/', home_view, name='home'),
-    path('upload/', upload_view, name='upload'),
-    path('download/', download_view, name='download'),
+    path("", home_view, name="home"),
+    path("home/", home_view, name="home_legacy"),
+    path("upload/", upload_view, name="upload"),
+    path("download/", download_view, name="download"),
+    path("auth/verify/<str:token>/", verify_email_view, name="auth_verify_email"),
+    path("api/auth/register/", api_auth_register, name="api_auth_register"),
+    path("api/auth/login/", api_auth_password_login, name="api_auth_login"),
+    path("api/auth/logout/", api_auth_logout, name="api_auth_logout"),
+    path("api/auth/me/", api_auth_me, name="api_auth_me"),
+    path(
+        "api/webauthn/register/begin/",
+        api_webauthn_register_begin,
+        name="api_webauthn_register_begin",
+    ),
+    path(
+        "api/webauthn/register/complete/",
+        api_webauthn_register_complete,
+        name="api_webauthn_register_complete",
+    ),
+    path(
+        "api/webauthn/auth/begin/",
+        api_webauthn_auth_begin,
+        name="api_webauthn_auth_begin",
+    ),
+    path(
+        "api/webauthn/auth/complete/",
+        api_webauthn_auth_complete,
+        name="api_webauthn_auth_complete",
+    ),
+    path("api/share/text/", api_share_text, name="api_share_text"),
+    path("api/share/clear/", api_share_clear, name="api_share_clear"),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
