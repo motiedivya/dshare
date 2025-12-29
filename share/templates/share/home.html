@@ -32,6 +32,13 @@
             return '';
         }
 
+        function getCsrfToken() {
+            const cookie = getCookie('csrftoken');
+            if (cookie) return cookie;
+            const input = document.querySelector('input[name="csrfmiddlewaretoken"]');
+            return input ? input.value : '';
+        }
+
         function toast(message, ms = 1800) {
             const el = document.getElementById('toast');
             el.textContent = message;
@@ -110,9 +117,10 @@
         }
 
         async function postJSON(url, data) {
-            const csrftoken = getCookie('csrftoken');
+            const csrftoken = getCsrfToken();
             const res = await fetch(url, {
                 method: 'POST',
+                credentials: 'same-origin',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-CSRFToken': csrftoken,
@@ -336,13 +344,15 @@
                 formData.append('text', text);
                 const response = await fetch('/upload/', {
                     method: 'POST',
+                    credentials: 'same-origin',
                     body: formData,
                     headers: {
-                        'X-CSRFToken': getCookie('csrftoken'),
+                        'X-CSRFToken': getCsrfToken(),
                     }
                 });
-                const data = await response.json();
-                toast(data.status === 'ok' ? 'ok' : 'fail');
+                let data = null;
+                try { data = await response.json(); } catch (_) {}
+                toast(response.ok && data && data.status === 'ok' ? 'ok' : 'fail');
             } catch (_) {
                 toast('fail');
             }
@@ -353,13 +363,16 @@
             const formData = new FormData(this);
             fetch('/upload/', {
                 method: 'POST',
+                credentials: 'same-origin',
                 body: formData,
                 headers: {
-                    'X-CSRFToken': getCookie('csrftoken'),
+                    'X-CSRFToken': getCsrfToken(),
                 }
-            }).then(response => response.json()).then(data => {
-                toast(data.status === 'ok' ? 'ok' : 'fail');
-            });
+            }).then(async (response) => {
+                let data = null;
+                try { data = await response.json(); } catch (_) {}
+                toast(response.ok && data && data.status === 'ok' ? 'ok' : 'fail');
+            }).catch(() => toast('fail'));
         });
 
         refreshMode();

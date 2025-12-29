@@ -51,6 +51,21 @@ class ShareFlowsTests(TestCase):
         self.assertEqual(public_download.status_code, 200)
         self.assertEqual(public_download.json()["status"], "empty")
 
+    def test_upload_requires_csrf_and_home_sets_cookie(self):
+        client = Client(enforce_csrf_checks=True)
+        home = client.get(reverse("home"))
+        self.assertEqual(home.status_code, 200)
+        self.assertIn("csrftoken", home.cookies)
+
+        token = home.cookies["csrftoken"].value
+        res = client.post(
+            reverse("upload"),
+            {"text": "hello"},
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["status"], "ok")
+
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 class AuthFlowsTests(TestCase):

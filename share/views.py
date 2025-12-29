@@ -15,6 +15,7 @@ from django.http import FileResponse, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 try:
     from fido2.server import Fido2Server
@@ -148,6 +149,7 @@ def _send_verification_email(*, request: HttpRequest, user, token: str) -> None:
         raise
 
 
+@ensure_csrf_cookie
 def home_view(request):
     return render(request, "share/home.html")
 
