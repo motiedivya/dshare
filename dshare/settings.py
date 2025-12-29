@@ -17,16 +17,53 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def _load_dotenv(path: Path) -> None:
+    if not path.exists():
+        return
+    try:
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if not key:
+                continue
+            if (value.startswith('"') and value.endswith('"')) or (
+                value.startswith("'") and value.endswith("'")
+            ):
+                value = value[1:-1]
+            os.environ.setdefault(key, value)
+    except OSError:
+        # Ignore missing/unreadable .env in production environments.
+        return
+
+
+# Load `.env` for local/dev convenience (does not override existing env vars).
+_load_dotenv(BASE_DIR / ".env")
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-@shgu=75nyod93+wq)mzc89aq)gizo)vr(*v79i+-0exo#ldrf'
+SECRET_KEY = os.getenv(
+    "DJANGO_SECRET_KEY",
+    "django-insecure-@shgu=75nyod93+wq)mzc89aq)gizo)vr(*v79i+-0exo#ldrf",
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
 
-ALLOWED_HOSTS = ["*"]
+
+def _csv_env(name: str, default: str) -> list[str]:
+    raw = os.getenv(name, default)
+    parts = [p.strip() for p in raw.split(",")]
+    return [p for p in parts if p]
+
+
+ALLOWED_HOSTS = _csv_env("DJANGO_ALLOWED_HOSTS", "*")
 
 
 # Application definition

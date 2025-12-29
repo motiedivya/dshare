@@ -137,10 +137,6 @@
             const email = prompt('email');
             if (!email) return;
             const password = prompt('pin (optional)') || '';
-            if (!password && !window.PublicKeyCredential) {
-                toast('fail');
-                return;
-            }
             if (password) {
                 const confirm = prompt('pin again') || '';
                 if (confirm !== password) {
@@ -149,7 +145,9 @@
                 }
             }
             const res = await postJSON('/api/auth/register/', { email, password });
-            toast(res.ok ? 'sent' : 'fail');
+            let data = null;
+            try { data = await res.json(); } catch (_) {}
+            toast(res.ok && data && data.status === 'ok' ? 'sent' : 'fail');
         }
 
         async function tryPasskeyLogin() {
@@ -180,11 +178,20 @@
 
             const email = prompt('email');
             if (!email) return;
-            const password = prompt('pin');
-            if (!password) return;
-            const res = await postJSON('/api/auth/login/', { email, password });
-            toast(res.ok ? 'ok' : 'fail');
-            if (res.ok) await refreshMode();
+            const password = prompt('pin (optional)') || '';
+            const res = await postJSON('/api/auth/login/', password ? { email, password } : { email });
+            let data = null;
+            try { data = await res.json(); } catch (_) {}
+            if (res.ok && data && data.status === 'ok') {
+                toast('ok');
+                await refreshMode();
+                return;
+            }
+            if (res.ok && data && data.status === 'sent') {
+                toast('sent');
+                return;
+            }
+            toast('fail');
         }
 
         async function commandLogout() {
@@ -238,7 +245,17 @@
         }
 
         async function commandHelp() {
-            toast('/register /login /logout /passkey /copy /paste /clear', 3500);
+            toast('/register /login /logout /passkey /status /copy /paste /clear', 3500);
+        }
+
+        async function commandStatus() {
+            try {
+                const res = await fetch('/api/auth/me/', { method: 'GET' });
+                const data = await res.json();
+                toast((data && data.authenticated) ? 'private' : 'public');
+            } catch (_) {
+                toast('fail');
+            }
         }
 
         async function handleCommand(cmd) {
@@ -246,6 +263,7 @@
             if (cmd === 'login') return commandLogin();
             if (cmd === 'logout') return commandLogout();
             if (cmd === 'passkey') return commandPasskey();
+            if (cmd === 'status' || cmd === 'me') return commandStatus();
             if (cmd === 'copy') return commandCopy();
             if (cmd === 'paste') return pasteText();
             if (cmd === 'clear') return commandClear();
@@ -273,7 +291,7 @@
                 const idx = keyword.lastIndexOf(prefix);
                 if (idx === -1) continue;
                 const maybe = keyword.slice(idx + 1);
-                const known = ['register', 'login', 'logout', 'passkey', 'copy', 'paste', 'clear', 'help', '?'];
+                const known = ['register', 'login', 'logout', 'passkey', 'status', 'me', 'copy', 'paste', 'clear', 'help', '?'];
                 if (known.includes(maybe)) {
                     keyword = '';
                     handleCommand(maybe);
@@ -317,8 +335,14 @@
 
         refreshMode();
 
-        if (new URLSearchParams(window.location.search).get('setup') === 'passkey') {
-            setTimeout(() => commandPasskey(), 300);
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('verified') === '1' || params.get('setup') === 'passkey') {
+            toast('ok');
+            params.delete('verified');
+            params.delete('setup');
+            const q = params.toString();
+            const clean = q ? `${window.location.pathname}?${q}` : window.location.pathname;
+            window.history.replaceState({}, '', clean);
         }
     </script>
 </body>

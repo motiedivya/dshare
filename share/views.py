@@ -10,6 +10,7 @@ from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.core.mail import EmailMultiAlternatives
 from django.core.validators import validate_email
+from django.contrib.auth.hashers import make_password
 from django.http import FileResponse, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -35,6 +36,9 @@ from .models import (
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+_SESSION_PENDING_PASSWORD_HASH = "dshare_pending_password_hash"
+_SESSION_PENDING_PASSWORD_EMAIL = "dshare_pending_password_email"
 
 
 def _parse_json(request: HttpRequest) -> dict:
@@ -79,15 +83,14 @@ def _send_verification_email(*, request: HttpRequest, user, token: str) -> None:
     html_body = f"""
 <!doctype html>
 <html>
-  <body style="margin:0;padding:0;background:#000;color:#fff;font-family:Arial, sans-serif;">
-    <div style="padding:24px;">
-      <div style="font-size:16px;line-height:1.4;">
-        <a href="{verify_url}" style="color:#fff;text-decoration:underline;">Verify</a>
-      </div>
-      <div style="margin-top:16px;font-size:12px;color:#aaa;">
-        If you didn't request this, ignore.
-      </div>
-    </div>
+  <head>
+    <meta name="color-scheme" content="dark">
+    <meta name="supported-color-schemes" content="dark">
+  </head>
+  <body style="margin:0;padding:0;background:#000;color:#000;font-family:Arial, sans-serif;">
+    <a href="{verify_url}" style="display:block;width:100%;padding:24px;background:#000;color:#000;text-decoration:none;">
+      Verify
+    </a>
   </body>
 </html>
 """.strip()
@@ -131,13 +134,14 @@ def api_auth_register(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"status": "fail"}, status=429)
     cache.set(throttle_key, attempts + 1, timeout=60 * 10)
 
+    if password:
+        request.session[_SESSION_PENDING_PASSWORD_EMAIL] = email
+        request.session[_SESSION_PENDING_PASSWORD_HASH] = make_password(password)
+
     user = User.objects.filter(username=email).first()
     if user is None:
         user = User(username=email, email=email)
-        if password:
-            user.set_password(password)
-        else:
-            user.set_unusable_password()
+        user.set_unusable_password()
         user.save()
 
     _get_or_create_profile(user)
@@ -179,12 +183,15 @@ def verify_email_view(request: HttpRequest, token: str) -> HttpResponse:
 
     login(request, token_obj.user, backend="django.contrib.auth.backends.ModelBackend")
 
-    query = {}
-    if not token_obj.user.webauthn_credentials.exists():
-        query["setup"] = "passkey"
-    url = reverse("home")
-    if query:
-        url = f"{url}?{urlencode(query)}"
+    pending_email = request.session.get(_SESSION_PENDING_PASSWORD_EMAIL)
+    pending_hash = request.session.get(_SESSION_PENDING_PASSWORD_HASH)
+    if pending_email and pending_hash and pending_email == token_obj.user.username:
+        token_obj.user.password = pending_hash
+        token_obj.user.save(update_fields=["password"])
+        request.session.pop(_SESSION_PENDING_PASSWORD_EMAIL, None)
+        request.session.pop(_SESSION_PENDING_PASSWORD_HASH, None)
+
+    url = f'{reverse("home")}?{urlencode({"verified": "1"})}'
     return redirect(url)
 
 
@@ -193,8 +200,38 @@ def api_auth_password_login(request: HttpRequest) -> JsonResponse:
     data = _parse_json(request)
     email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
-    if not email or not password:
+    if not email:
         return JsonResponse({"status": "fail"}, status=400)
+
+    try:
+        validate_email(email)
+    except ValidationError:
+        return JsonResponse({"status": "fail"}, status=400)
+
+    if not password:
+        ip = _client_ip(request)
+        throttle_key = f"dshare:login_link:{ip}"
+        attempts = cache.get(throttle_key, 0)
+        if attempts >= 10:
+            return JsonResponse({"status": "fail"}, status=429)
+        cache.set(throttle_key, attempts + 1, timeout=60 * 10)
+
+        user = User.objects.filter(username=email).first()
+        if user is None:
+            user = User(username=email, email=email)
+            user.set_unusable_password()
+            user.save()
+        _get_or_create_profile(user)
+
+        EmailVerificationToken.objects.filter(user=user, used_at__isnull=True).delete()
+        token_obj = EmailVerificationToken.objects.create(user=user)
+        try:
+            _send_verification_email(request=request, user=user, token=token_obj.token)
+        except Exception:
+            token_obj.delete()
+            return JsonResponse({"status": "fail"}, status=502)
+
+        return JsonResponse({"status": "sent"})
 
     user = authenticate(request, username=email, password=password)
     if user is None:
