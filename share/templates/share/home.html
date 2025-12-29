@@ -136,18 +136,47 @@
         async function commandRegister() {
             const email = prompt('email');
             if (!email) return;
-            const password = prompt('pin (optional)') || '';
-            if (password) {
-                const confirm = prompt('pin again') || '';
-                if (confirm !== password) {
+
+            let canLogin = false;
+            try {
+                const statusRes = await postJSON('/api/auth/email-status/', { email });
+                const statusData = await statusRes.json();
+                canLogin = statusRes.ok && statusData && statusData.status === 'ok' && !!statusData.can_login;
+            } catch (_) {}
+
+            if (canLogin) {
+                const secret = prompt('password or pin');
+                if (!secret) {
                     toast('fail');
                     return;
                 }
+                const res = await postJSON('/api/auth/login/', { email, secret });
+                let data = null;
+                try { data = await res.json(); } catch (_) {}
+                if (res.ok && data && data.status === 'ok') {
+                    toast('ok');
+                    await refreshMode();
+                    return;
+                }
+                toast('fail');
+                return;
             }
-            const res = await postJSON('/api/auth/register/', { email, password });
+
+            const password = prompt('password');
+            if (!password) {
+                toast('fail');
+                return;
+            }
+            const pin = prompt('pin (optional)') || '';
+            const res = await postJSON('/api/auth/register/', { email, password, pin });
             let data = null;
             try { data = await res.json(); } catch (_) {}
-            toast(res.ok && data && data.status === 'ok' ? 'sent' : 'fail');
+            if (res.ok && data && data.status === 'ok') {
+                toast('sent');
+                return;
+            }
+            if (data && data.detail) console.error(data.detail);
+            toast('fail');
         }
 
         async function tryPasskeyLogin() {
@@ -178,17 +207,17 @@
 
             const email = prompt('email');
             if (!email) return;
-            const password = prompt('pin (optional)') || '';
-            const res = await postJSON('/api/auth/login/', password ? { email, password } : { email });
+            const secret = prompt('password or pin');
+            if (!secret) {
+                toast('fail');
+                return;
+            }
+            const res = await postJSON('/api/auth/login/', { email, secret });
             let data = null;
             try { data = await res.json(); } catch (_) {}
             if (res.ok && data && data.status === 'ok') {
                 toast('ok');
                 await refreshMode();
-                return;
-            }
-            if (res.ok && data && data.status === 'sent') {
-                toast('sent');
                 return;
             }
             toast('fail');

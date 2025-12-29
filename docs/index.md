@@ -21,7 +21,7 @@ Type-to-share files and clipboard text.
 
 ### Private mode (recommended)
 
-1. Type `/register` and enter your email (+ optional PIN/password fallback).
+1. Type `/register` and enter your email + password (+ optional PIN fallback).
 2. Click the verification email link once.
 3. From then on, just visit the site and type `divya` / `moti` (your session lasts ~30 days by default).
 
@@ -32,7 +32,7 @@ Optional: type `/passkey` once to add a passkey; `/login` prefers passkeys autom
 - `divya` — upload
 - `moti` — download/view
 - `/register` — create account (sends verification email)
-- `/login` — login (passkey first; PIN/password fallback)
+- `/login` — login (passkey first; password/PIN fallback)
 - `/logout` — logout
 - `/passkey` — add passkey (WebAuthn)
 - `/status` — shows `public` or `private`

@@ -1,6 +1,7 @@
 import json
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import check_password
 from django.core import mail
 from django.core.cache import cache
 from django.test import Client
@@ -57,35 +58,19 @@ class AuthFlowsTests(TestCase):
         super().setUp()
         cache.clear()
 
-    def test_register_without_pin_sends_verification_and_leaves_unusable_password(self):
+    def test_register_requires_password(self):
         res = self.client.post(
             reverse("api_auth_register"),
             data=json.dumps({"email": "a@example.com", "password": ""}),
             content_type="application/json",
         )
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json()["status"], "ok")
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()["status"], "fail")
 
-        user = User.objects.get(username="a@example.com")
-        self.assertFalse(user.has_usable_password())
-        self.assertTrue(EmailVerificationToken.objects.filter(user=user).exists())
-
-        token = EmailVerificationToken.objects.get(user=user)
-        verify = self.client.get(
-            reverse("auth_verify_email", kwargs={"token": token.token})
-        )
-        self.assertEqual(verify.status_code, 302)
-
-        profile = UserProfile.objects.get(user=user)
-        self.assertIsNotNone(profile.email_verified_at)
-        user.refresh_from_db()
-        self.assertFalse(user.has_usable_password())
-
-    def test_register_with_pin_sets_password_after_verify_same_session(self):
+    def test_register_sets_password_and_optional_pin_after_verify(self):
         res = self.client.post(
             reverse("api_auth_register"),
-            data=json.dumps({"email": "p@example.com", "password": "1234"}),
+            data=json.dumps({"email": "p@example.com", "password": "pw12345", "pin": "1234"}),
             content_type="application/json",
         )
         self.assertEqual(res.status_code, 200)
@@ -103,24 +88,35 @@ class AuthFlowsTests(TestCase):
 
         user.refresh_from_db()
         self.assertTrue(user.has_usable_password())
-        self.assertTrue(user.check_password("1234"))
+        self.assertTrue(user.check_password("pw12345"))
+        profile = UserProfile.objects.get(user=user)
+        self.assertTrue(check_password("1234", profile.pin_hash))
 
         self.client.post(reverse("api_auth_logout"))
         login_res = self.client.post(
             reverse("api_auth_login"),
-            data=json.dumps({"email": "p@example.com", "password": "1234"}),
+            data=json.dumps({"email": "p@example.com", "secret": "pw12345"}),
             content_type="application/json",
         )
         self.assertEqual(login_res.status_code, 200)
         self.assertEqual(login_res.json()["status"], "ok")
 
-    def test_register_with_pin_does_not_set_password_if_verified_elsewhere(self):
+        self.client.post(reverse("api_auth_logout"))
+        pin_login = self.client.post(
+            reverse("api_auth_login"),
+            data=json.dumps({"email": "p@example.com", "secret": "1234"}),
+            content_type="application/json",
+        )
+        self.assertEqual(pin_login.status_code, 200)
+        self.assertEqual(pin_login.json()["status"], "ok")
+
+    def test_register_sets_password_even_if_verified_elsewhere(self):
         client_a = Client()
         client_b = Client()
 
         res = client_a.post(
             reverse("api_auth_register"),
-            data=json.dumps({"email": "x@example.com", "password": "9999"}),
+            data=json.dumps({"email": "x@example.com", "password": "pw99999", "pin": "9999"}),
             content_type="application/json",
         )
         self.assertEqual(res.status_code, 200)
@@ -134,18 +130,20 @@ class AuthFlowsTests(TestCase):
         self.assertEqual(verify.status_code, 302)
 
         user.refresh_from_db()
-        self.assertFalse(user.has_usable_password())
-        self.assertFalse(user.check_password("9999"))
+        self.assertTrue(user.has_usable_password())
+        self.assertTrue(user.check_password("pw99999"))
 
         profile = UserProfile.objects.get(user=user)
         self.assertIsNotNone(profile.email_verified_at)
+        self.assertTrue(check_password("9999", profile.pin_hash))
 
-        login_res = client_b.post(
+        login_res = client_a.post(
             reverse("api_auth_login"),
-            data=json.dumps({"email": "x@example.com", "password": "9999"}),
+            data=json.dumps({"email": "x@example.com", "secret": "pw99999"}),
             content_type="application/json",
         )
-        self.assertEqual(login_res.status_code, 401)
+        self.assertEqual(login_res.status_code, 200)
+        self.assertEqual(login_res.json()["status"], "ok")
 
     def test_password_login_requires_verified_email(self):
         user = User.objects.create_user(
@@ -155,36 +153,48 @@ class AuthFlowsTests(TestCase):
 
         res = self.client.post(
             reverse("api_auth_login"),
-            data=json.dumps({"email": "u@example.com", "password": "pw"}),
+            data=json.dumps({"email": "u@example.com", "secret": "pw"}),
             content_type="application/json",
         )
         self.assertEqual(res.status_code, 403)
         self.assertEqual(res.json()["status"], "fail")
 
-    def test_login_without_pin_sends_magic_link_and_does_not_authenticate(self):
+    def test_email_status_can_login_only_when_verified(self):
         res = self.client.post(
-            reverse("api_auth_login"),
-            data=json.dumps({"email": "m@example.com"}),
+            reverse("api_auth_email_status"),
+            data=json.dumps({"email": "new@example.com"}),
             content_type="application/json",
         )
         self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json()["status"], "sent")
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(res.json()["status"], "ok")
+        self.assertFalse(res.json()["can_login"])
 
-        me = self.client.get(reverse("api_auth_me"))
-        self.assertEqual(me.status_code, 200)
-        self.assertFalse(me.json()["authenticated"])
-
-        user = User.objects.get(username="m@example.com")
-        token = EmailVerificationToken.objects.get(user=user)
-        verify = self.client.get(
-            reverse("auth_verify_email", kwargs={"token": token.token})
+        unverified = User.objects.create_user(
+            username="u2@example.com", email="u2@example.com", password="pw"
         )
-        self.assertEqual(verify.status_code, 302)
+        UserProfile.objects.get_or_create(user=unverified)
+        res2 = self.client.post(
+            reverse("api_auth_email_status"),
+            data=json.dumps({"email": "u2@example.com"}),
+            content_type="application/json",
+        )
+        self.assertEqual(res2.status_code, 200)
+        self.assertFalse(res2.json()["can_login"])
 
-        me2 = self.client.get(reverse("api_auth_me"))
-        self.assertEqual(me2.status_code, 200)
-        self.assertTrue(me2.json()["authenticated"])
+        verified = User.objects.create_user(
+            username="v@example.com", email="v@example.com", password="pw"
+        )
+        UserProfile.objects.update_or_create(
+            user=verified,
+            defaults={"email_verified_at": timezone.now()},
+        )
+        res3 = self.client.post(
+            reverse("api_auth_email_status"),
+            data=json.dumps({"email": "v@example.com"}),
+            content_type="application/json",
+        )
+        self.assertEqual(res3.status_code, 200)
+        self.assertTrue(res3.json()["can_login"])
 
     def test_verify_email_rejects_expired_token(self):
         user = User.objects.create_user(username="z@example.com", email="z@example.com", password="pw")

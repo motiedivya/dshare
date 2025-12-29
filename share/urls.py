@@ -2,8 +2,10 @@ from django.urls import path
 from .views import (
     api_auth_logout,
     api_auth_me,
+    api_auth_email_status,
     api_auth_password_login,
     api_auth_register,
+    api_auth_set_credentials,
     api_share_clear,
     api_share_text,
     api_webauthn_auth_begin,
@@ -24,8 +26,10 @@ urlpatterns = [
     path("upload/", upload_view, name="upload"),
     path("download/", download_view, name="download"),
     path("auth/verify/<str:token>/", verify_email_view, name="auth_verify_email"),
+    path("api/auth/email-status/", api_auth_email_status, name="api_auth_email_status"),
     path("api/auth/register/", api_auth_register, name="api_auth_register"),
     path("api/auth/login/", api_auth_password_login, name="api_auth_login"),
+    path("api/auth/credentials/", api_auth_set_credentials, name="api_auth_set_credentials"),
     path("api/auth/logout/", api_auth_logout, name="api_auth_logout"),
     path("api/auth/me/", api_auth_me, name="api_auth_me"),
     path(

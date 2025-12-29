@@ -9,7 +9,7 @@ You don’t “navigate” the UI: you type keywords.
 
 Those two keywords are treated as global aliases and are intended to never change.
 
-This repo also adds optional accounts (one-time email verification + 30‑day session retention) with passkeys (WebAuthn) preferred and PIN/password as a fallback.
+This repo also adds optional accounts (one-time email verification + 30‑day session retention) with passkeys (WebAuthn) preferred and password (required) + optional PIN as a fallback.
 
 ---
 
@@ -57,14 +57,14 @@ It has one core idea:
 
 ### Private share (same flow, but per-user)
 
-1. Type `/register` and enter your email (and optional PIN/password fallback).
+1. Type `/register` and enter your email + password (and optional PIN fallback).
 2. Click the verification email link once (verifies + logs in).
 3. From then on, just open the site and type `divya` / `moti`.
 
 If you ever get logged out (new browser/device), type `/login`:
 
 - tries passkey first (if you added one)
-- falls back to email + PIN/password
+- falls back to email + password/PIN
 
 ---
 
@@ -77,7 +77,7 @@ All commands are typed directly on the home page (no input fields).
 | `divya` | Reveals the upload section |
 | `moti` | Downloads/views the latest stored file/text |
 | `/register` | Create account (email verification sent) |
-| `/login` | Log in (passkey first; PIN/password fallback) |
+| `/login` | Log in (passkey first; password/PIN fallback) |
 | `/logout` | Log out |
 | `/passkey` | Add a passkey (requires you to be logged in + email verified) |
 | `/paste` | Upload clipboard text |

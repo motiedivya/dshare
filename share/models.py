@@ -10,6 +10,7 @@ class UserProfile(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile"
     )
     email_verified_at = models.DateTimeField(null=True, blank=True)
+    pin_hash = models.CharField(max_length=128, null=True, blank=True)
     webauthn_user_id = models.BinaryField(null=True, blank=True, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -33,6 +34,8 @@ class EmailVerificationToken(models.Model):
         related_name="email_verification_tokens",
     )
     token = models.CharField(max_length=128, unique=True, default=_email_token_default)
+    pending_password_hash = models.CharField(max_length=128, null=True, blank=True)
+    pending_pin_hash = models.CharField(max_length=128, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     used_at = models.DateTimeField(null=True, blank=True)
 

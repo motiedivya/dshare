@@ -19,7 +19,7 @@ Public mode is world-writable; read `Security`.
 
 ### Private (accounts)
 
-1. Type `/register`, enter your email, optionally set a PIN/password fallback.
+1. Type `/register`, enter your email + password, optionally set a PIN fallback.
 2. Click the verification email link once.
 3. You now stay logged in for ~30 days by default. Just type `divya` / `moti`.
 
@@ -41,4 +41,3 @@ There is no built-in history UI by design.
 - `Email` — Resend SMTP setup
 - `Passkeys` — WebAuthn requirements and troubleshooting
 - `Deployment` — production checklist
-

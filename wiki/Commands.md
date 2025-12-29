@@ -18,7 +18,7 @@ Commands start with `/` (or `\` as an alias). They are detected as you type.
 | `/help` | no | Shows a small cheat sheet |
 | `/status` / `/me` | no | Shows `public` or `private` |
 | `/register` | no | Creates/updates an account and sends a verification email |
-| `/login` | no | Logs in (passkey first; PIN/password fallback) |
+| `/login` | no | Logs in (passkey first; password/PIN fallback) |
 | `/logout` | yes | Logs out |
 | `/passkey` | yes | Registers a passkey (WebAuthn) |
 | `/paste` | no | Uploads clipboard text |
@@ -36,4 +36,3 @@ If something fails:
 
 - `/status` tells you which lane you’re in
 - check server logs for details (SMTP errors, etc.)
-

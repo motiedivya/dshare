@@ -10,7 +10,7 @@ from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.core.mail import EmailMultiAlternatives
 from django.core.validators import validate_email
-from django.contrib.auth.hashers import make_password
+from django.contrib.auth.hashers import check_password, make_password
 from django.http import FileResponse, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -36,9 +36,6 @@ from .models import (
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
-
-_SESSION_PENDING_PASSWORD_HASH = "dshare_pending_password_hash"
-_SESSION_PENDING_PASSWORD_EMAIL = "dshare_pending_password_email"
 
 
 def _parse_json(request: HttpRequest) -> dict:
@@ -72,6 +69,34 @@ def _get_fido_server(request: HttpRequest) -> Fido2Server:
 def _get_or_create_profile(user) -> UserProfile:
     profile, _ = UserProfile.objects.get_or_create(user=user)
     return profile
+
+
+@require_POST
+def api_auth_email_status(request: HttpRequest) -> JsonResponse:
+    data = _parse_json(request)
+    email = (data.get("email") or "").strip().lower()
+    if not email:
+        return JsonResponse({"status": "fail"}, status=400)
+
+    try:
+        validate_email(email)
+    except ValidationError:
+        return JsonResponse({"status": "fail"}, status=400)
+
+    ip = _client_ip(request)
+    throttle_key = f"dshare:email_status:{ip}"
+    attempts = cache.get(throttle_key, 0)
+    if attempts >= 120:
+        return JsonResponse({"status": "fail"}, status=429)
+    cache.set(throttle_key, attempts + 1, timeout=60 * 10)
+
+    can_login = False
+    user = User.objects.filter(username=email).first()
+    if user and user.is_active:
+        profile = _get_or_create_profile(user)
+        can_login = profile.email_verified_at is not None
+
+    return JsonResponse({"status": "ok", "can_login": can_login})
 
 
 def _send_verification_email(*, request: HttpRequest, user, token: str) -> None:
@@ -118,6 +143,7 @@ def api_auth_register(request: HttpRequest) -> JsonResponse:
     data = _parse_json(request)
     email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
+    pin = data.get("pin") or ""
 
     if not email:
         return JsonResponse({"status": "fail"}, status=400)
@@ -127,16 +153,15 @@ def api_auth_register(request: HttpRequest) -> JsonResponse:
     except ValidationError:
         return JsonResponse({"status": "fail"}, status=400)
 
+    if not password:
+        return JsonResponse({"status": "fail"}, status=400)
+
     ip = _client_ip(request)
     throttle_key = f"dshare:register:{ip}"
     attempts = cache.get(throttle_key, 0)
     if attempts >= 10:
         return JsonResponse({"status": "fail"}, status=429)
     cache.set(throttle_key, attempts + 1, timeout=60 * 10)
-
-    if password:
-        request.session[_SESSION_PENDING_PASSWORD_EMAIL] = email
-        request.session[_SESSION_PENDING_PASSWORD_HASH] = make_password(password)
 
     user = User.objects.filter(username=email).first()
     if user is None:
@@ -147,12 +172,19 @@ def api_auth_register(request: HttpRequest) -> JsonResponse:
     _get_or_create_profile(user)
 
     EmailVerificationToken.objects.filter(user=user, used_at__isnull=True).delete()
-    token_obj = EmailVerificationToken.objects.create(user=user)
+    token_obj = EmailVerificationToken.objects.create(
+        user=user,
+        pending_password_hash=make_password(password),
+        pending_pin_hash=make_password(pin) if pin else None,
+    )
     try:
         _send_verification_email(request=request, user=user, token=token_obj.token)
-    except Exception:
+    except Exception as exc:
         token_obj.delete()
-        return JsonResponse({"status": "fail"}, status=502)
+        payload = {"status": "fail", "code": "email_send_failed"}
+        if settings.DEBUG:
+            payload["detail"] = str(exc)[:500]
+        return JsonResponse(payload, status=502)
 
     return JsonResponse({"status": "ok"})
 
@@ -181,15 +213,21 @@ def verify_email_view(request: HttpRequest, token: str) -> HttpResponse:
         profile.email_verified_at = now
         profile.save(update_fields=["email_verified_at"])
 
-    login(request, token_obj.user, backend="django.contrib.auth.backends.ModelBackend")
-
-    pending_email = request.session.get(_SESSION_PENDING_PASSWORD_EMAIL)
-    pending_hash = request.session.get(_SESSION_PENDING_PASSWORD_HASH)
-    if pending_email and pending_hash and pending_email == token_obj.user.username:
-        token_obj.user.password = pending_hash
+    did_apply = False
+    if token_obj.pending_password_hash:
+        token_obj.user.password = token_obj.pending_password_hash
         token_obj.user.save(update_fields=["password"])
-        request.session.pop(_SESSION_PENDING_PASSWORD_EMAIL, None)
-        request.session.pop(_SESSION_PENDING_PASSWORD_HASH, None)
+        did_apply = True
+    if token_obj.pending_pin_hash:
+        profile.pin_hash = token_obj.pending_pin_hash
+        profile.save(update_fields=["pin_hash"])
+        did_apply = True
+    if did_apply:
+        token_obj.pending_password_hash = None
+        token_obj.pending_pin_hash = None
+        token_obj.save(update_fields=["pending_password_hash", "pending_pin_hash"])
+
+    login(request, token_obj.user, backend="django.contrib.auth.backends.ModelBackend")
 
     url = f'{reverse("home")}?{urlencode({"verified": "1"})}'
     return redirect(url)
@@ -199,7 +237,7 @@ def verify_email_view(request: HttpRequest, token: str) -> HttpResponse:
 def api_auth_password_login(request: HttpRequest) -> JsonResponse:
     data = _parse_json(request)
     email = (data.get("email") or "").strip().lower()
-    password = data.get("password") or ""
+    secret = data.get("secret") or data.get("password") or data.get("pin") or ""
     if not email:
         return JsonResponse({"status": "fail"}, status=400)
 
@@ -208,40 +246,64 @@ def api_auth_password_login(request: HttpRequest) -> JsonResponse:
     except ValidationError:
         return JsonResponse({"status": "fail"}, status=400)
 
-    if not password:
-        ip = _client_ip(request)
-        throttle_key = f"dshare:login_link:{ip}"
-        attempts = cache.get(throttle_key, 0)
-        if attempts >= 10:
-            return JsonResponse({"status": "fail"}, status=429)
+    ip = _client_ip(request)
+    throttle_key = f"dshare:login_fail:{ip}"
+    attempts = cache.get(throttle_key, 0)
+    if attempts >= 50:
+        return JsonResponse({"status": "fail"}, status=429)
+
+    if not secret:
+        return JsonResponse({"status": "fail"}, status=400)
+
+    user = User.objects.filter(username=email).first()
+    if user is None or not user.is_active:
         cache.set(throttle_key, attempts + 1, timeout=60 * 10)
-
-        user = User.objects.filter(username=email).first()
-        if user is None:
-            user = User(username=email, email=email)
-            user.set_unusable_password()
-            user.save()
-        _get_or_create_profile(user)
-
-        EmailVerificationToken.objects.filter(user=user, used_at__isnull=True).delete()
-        token_obj = EmailVerificationToken.objects.create(user=user)
-        try:
-            _send_verification_email(request=request, user=user, token=token_obj.token)
-        except Exception:
-            token_obj.delete()
-            return JsonResponse({"status": "fail"}, status=502)
-
-        return JsonResponse({"status": "sent"})
-
-    user = authenticate(request, username=email, password=password)
-    if user is None:
         return JsonResponse({"status": "fail"}, status=401)
 
-    profile = _get_or_create_profile(user)
+    auth_user = authenticate(request, username=email, password=secret)
+    if auth_user is None:
+        profile = _get_or_create_profile(user)
+        if not profile.pin_hash or not check_password(secret, profile.pin_hash):
+            cache.set(throttle_key, attempts + 1, timeout=60 * 10)
+            return JsonResponse({"status": "fail"}, status=401)
+        auth_user = user
+
+    profile = _get_or_create_profile(auth_user)
+    if profile.email_verified_at is None:
+        cache.set(throttle_key, attempts + 1, timeout=60 * 10)
+        return JsonResponse({"status": "fail"}, status=403)
+
+    login(request, auth_user)
+    cache.delete(throttle_key)
+    return JsonResponse({"status": "ok"})
+
+
+@require_POST
+def api_auth_set_credentials(request: HttpRequest) -> JsonResponse:
+    if not request.user.is_authenticated:
+        return JsonResponse({"status": "fail"}, status=401)
+
+    profile = _get_or_create_profile(request.user)
     if profile.email_verified_at is None:
         return JsonResponse({"status": "fail"}, status=403)
 
-    login(request, user)
+    data = _parse_json(request)
+    password = data.get("password") or ""
+    pin = data.get("pin") or ""
+    if not password:
+        return JsonResponse({"status": "fail"}, status=400)
+
+    request.user.password = make_password(password)
+    request.user.save(update_fields=["password"])
+
+    profile.pin_hash = make_password(pin) if pin else None
+    profile.save(update_fields=["pin_hash"])
+
+    login(
+        request,
+        request.user,
+        backend="django.contrib.auth.backends.ModelBackend",
+    )
     return JsonResponse({"status": "ok"})
 
 
@@ -262,6 +324,8 @@ def api_auth_me(request: HttpRequest) -> JsonResponse:
             "authenticated": True,
             "email_verified": profile.email_verified_at is not None,
             "has_passkey": request.user.webauthn_credentials.exists(),
+            "has_password": request.user.has_usable_password(),
+            "has_pin": bool(profile.pin_hash),
         }
     )
 
