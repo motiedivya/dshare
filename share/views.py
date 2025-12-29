@@ -16,15 +16,27 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
-from fido2.server import Fido2Server
-from fido2.utils import websafe_decode
-from fido2.webauthn import (
-    AttestedCredentialData,
-    PublicKeyCredentialRpEntity,
-    PublicKeyCredentialUserEntity,
-    ResidentKeyRequirement,
-    UserVerificationRequirement,
-)
+try:
+    from fido2.server import Fido2Server
+    from fido2.utils import websafe_decode
+    from fido2.webauthn import (
+        AttestedCredentialData,
+        PublicKeyCredentialRpEntity,
+        PublicKeyCredentialUserEntity,
+        ResidentKeyRequirement,
+        UserVerificationRequirement,
+    )
+
+    _FIDO2_AVAILABLE = True
+except ModuleNotFoundError:  # pragma: no cover
+    Fido2Server = None  # type: ignore[assignment]
+    websafe_decode = None  # type: ignore[assignment]
+    AttestedCredentialData = None  # type: ignore[assignment]
+    PublicKeyCredentialRpEntity = None  # type: ignore[assignment]
+    PublicKeyCredentialUserEntity = None  # type: ignore[assignment]
+    ResidentKeyRequirement = None  # type: ignore[assignment]
+    UserVerificationRequirement = None  # type: ignore[assignment]
+    _FIDO2_AVAILABLE = False
 
 from .models import (
     EmailVerificationToken,
@@ -62,6 +74,8 @@ def _get_rp_name() -> str:
 
 
 def _get_fido_server(request: HttpRequest) -> Fido2Server:
+    if not _FIDO2_AVAILABLE:  # pragma: no cover
+        raise RuntimeError("WebAuthn unavailable (missing fido2)")
     rp = PublicKeyCredentialRpEntity(id=_get_rp_id(request), name=_get_rp_name())
     return Fido2Server(rp)
 
@@ -332,6 +346,9 @@ def api_auth_me(request: HttpRequest) -> JsonResponse:
 
 @require_POST
 def api_webauthn_register_begin(request: HttpRequest) -> JsonResponse:
+    if not _FIDO2_AVAILABLE:
+        return JsonResponse({"status": "fail", "code": "webauthn_unavailable"}, status=503)
+
     if not request.user.is_authenticated:
         return JsonResponse({"status": "fail"}, status=401)
 
@@ -360,6 +377,9 @@ def api_webauthn_register_begin(request: HttpRequest) -> JsonResponse:
 
 @require_POST
 def api_webauthn_register_complete(request: HttpRequest) -> JsonResponse:
+    if not _FIDO2_AVAILABLE:
+        return JsonResponse({"status": "fail", "code": "webauthn_unavailable"}, status=503)
+
     if not request.user.is_authenticated:
         return JsonResponse({"status": "fail"}, status=401)
 
@@ -393,6 +413,9 @@ def api_webauthn_register_complete(request: HttpRequest) -> JsonResponse:
 
 @require_POST
 def api_webauthn_auth_begin(request: HttpRequest) -> JsonResponse:
+    if not _FIDO2_AVAILABLE:
+        return JsonResponse({"status": "fail", "code": "webauthn_unavailable"}, status=503)
+
     server = _get_fido_server(request)
     options, state = server.authenticate_begin(
         user_verification=UserVerificationRequirement.PREFERRED
@@ -403,6 +426,9 @@ def api_webauthn_auth_begin(request: HttpRequest) -> JsonResponse:
 
 @require_POST
 def api_webauthn_auth_complete(request: HttpRequest) -> JsonResponse:
+    if not _FIDO2_AVAILABLE:
+        return JsonResponse({"status": "fail", "code": "webauthn_unavailable"}, status=503)
+
     state = request.session.pop("webauthn_auth_state", None)
     if not state:
         return JsonResponse({"status": "fail"}, status=400)

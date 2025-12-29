@@ -35,5 +35,9 @@ If you keep public mode enabled on the open internet:
 
 ## PythonAnywhere notes
 
-PythonAnywhere is workable, but passkeys require a proper HTTPS domain and stable `DSHARE_RP_ID`.
+PythonAnywhere is workable, but there are a couple of sharp edges:
 
+- Use a virtualenv (Web tab → Virtualenv) and install deps: `pip install -r requirements.txt` (includes `fido2` for passkeys).
+- Run DB migrations after every deploy: `python manage.py migrate` (otherwise you’ll see `no such table` / `no such column` errors).
+- Free accounts can’t use arbitrary SMTP (so Resend SMTP will fail); use Gmail SMTP (allowed) or an HTTP-based provider like SendGrid/Mailgun, or upgrade for unrestricted internet access.
+- Passkeys require HTTPS and `DSHARE_RP_ID` must match your domain (eg `dshare.pythonanywhere.com`).

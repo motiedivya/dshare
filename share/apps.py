@@ -41,7 +41,10 @@ def ensure_bootstrap_superuser(sender, **kwargs) -> None:
     try:
         User.objects.create_superuser(username=username, email=email or None, password=password)
         if verbosity >= 1:
-            print(f"Created bootstrap superuser '{username}'.")
+            try:
+                print(f"Created bootstrap superuser '{username}'.")
+            except OSError:
+                pass
         logger.info("Created bootstrap superuser '%s' from env vars.", username)
     except IntegrityError:
         # Race/concurrent migrate: another process created it.
