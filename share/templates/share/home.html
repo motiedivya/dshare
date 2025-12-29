@@ -361,6 +361,7 @@
         document.getElementById('upload-form').addEventListener('submit', function (e) {
             e.preventDefault();
             const formData = new FormData(this);
+            formData.delete('csrfmiddlewaretoken');
             fetch('/upload/', {
                 method: 'POST',
                 credentials: 'same-origin',
