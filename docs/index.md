@@ -1,10 +1,6 @@
----
-title: DShare
----
-
 # DShare
 
-Type-to-share files and clipboard text.
+Type-to-share <span class="redacted">TOP SECRET</span> files and clipboard text.
 
 **Never-changing muscle memory**
 
@@ -17,7 +13,7 @@ Type-to-share files and clipboard text.
 
 1. Open the site.
 2. Type `divya` and upload a file (or type `/paste`).
-3. On another device, open the site and type `moti`.
+3. On another <span class="redacted">DEVICE</span>, open the site and type `moti`.
 
 ### Private mode (recommended)
 
@@ -42,6 +38,6 @@ Optional: type `/passkey` once to add a passkey; `/login` prefers passkeys autom
 
 ## Security note
 
-Public mode is world-writable. If you deploy DShare to the open internet, expect abuse unless you add external controls (WAF, rate limiting, allowlists, VPN).
+Public mode is <span class="redacted">WORLD-WRITABLE</span>. If you deploy DShare to the open internet, expect abuse unless you add external controls (WAF, rate limiting, allowlists, VPN).
 
 Read the repo `README.md` for the full security model, configuration, and production checklist.

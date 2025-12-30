@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page.title }} | TOP SECRET</title>
+    <link rel="stylesheet" href="{{ '/assets/css/spy-haunted.css' | relative_url }}">
+</head>
+<body>
+
+    <div class="flashlight-overlay"></div>
+    <div class="scanlines"></div>
+
+    <div class="container">
+        {{ content }}
+        
+        <div class="status-bar">
+            <span id="system-time">DATE: UNKNOWN</span>
+            <span>SECURE TERMINAL V.0.9</span>
+        </div>
+    </div>
+
+    <script src="{{ '/assets/js/spy-haunted.js' | relative_url }}"></script>
+    <script>
+        // Quick update for the system time
+        document.getElementById('system-time').innerText = "DATE: " + new Date().toISOString().split('T')[0];
+    </script>
+</body>
+</html>

@@ -1,0 +1,178 @@
+/* Spy/Haunted Theme - "Project DShare: CLASSIFIED" */
+
+:root {
+    --bg-color: #050505;
+    --text-color: #0f0; /* Terminal Green */
+    --accent-color: #f00; /* Alert Red */
+    --dim-color: #003300;
+    --cursor-x: 50vw;
+    --cursor-y: 50vh;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: 'Courier New', Courier, monospace;
+    margin: 0;
+    padding: 2rem;
+    overflow-x: hidden;
+    line-height: 1.6;
+    cursor: crosshair; /* Precision */
+}
+
+a {
+    color: var(--text-color);
+    text-decoration: underline;
+    transition: all 0.2s ease;
+}
+
+a:hover {
+    background-color: var(--text-color);
+    color: var(--bg-color);
+    text-decoration: none;
+    box-shadow: 0 0 10px var(--text-color);
+}
+
+h1, h2, h3 {
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    border-bottom: 2px solid var(--dim-color);
+    padding-bottom: 0.5rem;
+    text-shadow: 0 0 5px var(--text-color);
+}
+
+/* --- FLASHLIGHT EFFECT --- */
+/* We overlay a dark mask everywhere EXCEPT a radial hole around the mouse */
+.flashlight-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none; /* Let clicks pass through */
+    z-index: 9999;
+    background: radial-gradient(
+        circle 150px at var(--cursor-x) var(--cursor-y),
+        transparent 0%,
+        rgba(0, 0, 0, 0.8) 50%,
+        rgba(0, 0, 0, 0.98) 100%
+    );
+    mix-blend-mode: multiply; /* Helps darken the underlying content */
+}
+
+/* --- SCANLINES --- */
+/* Old monitor CRT effect */
+.scanlines {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10000;
+    background: linear-gradient(
+        to bottom,
+        rgba(255, 255, 255, 0),
+        rgba(255, 255, 255, 0) 50%,
+        rgba(0, 0, 0, 0.3) 50%,
+        rgba(0, 0, 0, 0.3)
+    );
+    background-size: 100% 4px;
+    opacity: 0.15;
+}
+
+.scanlines::before {
+    content: " ";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 255, 0, 0.05);
+    animation: flicker 0.15s infinite;
+    pointer-events: none;
+}
+
+@keyframes flicker {
+    0% { opacity: 0.02; }
+    50% { opacity: 0.05; }
+    100% { opacity: 0.02; }
+}
+
+/* --- REDACTED TEXT --- */
+.redacted {
+    background-color: var(--text-color);
+    color: var(--text-color); /* Hide text by making it same as bg block */
+    padding: 0 4px;
+    border-radius: 2px;
+    cursor: help;
+    transition: all 0.3s ease-out;
+    user-select: none;
+}
+
+.redacted:hover {
+    background-color: transparent;
+    color: var(--accent-color); /* Reveal as warning red */
+    text-shadow: 0 0 8px var(--accent-color);
+}
+
+/* --- CONTAINER --- */
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    position: relative;
+    z-index: 1; /* Below overlay */
+}
+
+/* --- GLITCH TEXT --- */
+.glitch {
+    position: relative;
+    color: white;
+    font-size: 4em;
+    animation: glitch-skew 1s cubic-bezier(0.25, 0.46, 0.45, 0.94) both infinite;
+}
+
+.glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg-color);
+}
+
+.glitch::before {
+    left: 2px;
+    text-shadow: -2px 0 #ff00c1;
+    clip: rect(44px, 450px, 56px, 0);
+    animation: glitch-anim 5s infinite linear alternate-reverse;
+}
+
+.glitch::after {
+    left: -2px;
+    text-shadow: -2px 0 #00fff9;
+    clip: rect(44px, 450px, 56px, 0);
+    animation: glitch-anim2 5s infinite linear alternate-reverse;
+}
+/* Keyframes for glitch omitted for brevity/sanity, using simple shake instead for now */
+
+/* --- SYSTEM STATUS --- */
+.status-bar {
+    border-top: 1px solid var(--text-color);
+    margin-top: 50px;
+    padding-top: 10px;
+    font-size: 0.8rem;
+    opacity: 0.7;
+    display: flex;
+    justify-content: space-between;
+}
+
+.blinking-cursor::after {
+    content: '_';
+    animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+    50% { opacity: 0; }
+}
