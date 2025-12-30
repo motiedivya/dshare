@@ -20,12 +20,12 @@ This repo also adds optional accounts (one-time email verification + 30‑day se
 - [Commands](#commands)
 - [Public vs Private mode](#public-vs-private-mode)
 - [Security model (read this)](#security-model-read-this)
-- [Retention & cleanup](#retention--cleanup)
+- [Retention &amp; cleanup](#retention--cleanup)
 - [Local setup](#local-setup)
 - [Email setup (Resend SMTP)](#email-setup-resend-smtp)
 - [Passkeys (WebAuthn)](#passkeys-webauthn)
 - [Production checklist](#production-checklist)
-- [GitHub Pages & Wiki](#github-pages--wiki)
+- [GitHub Pages &amp; Wiki](#github-pages--wiki)
 
 ---
 
@@ -72,19 +72,19 @@ If you ever get logged out (new browser/device), type `/login`:
 
 All commands are typed directly on the home page (no input fields).
 
-| Command | What it does |
-|---|---|
-| `divya` | Reveals the upload section |
-| `moti` | Downloads/views the latest stored file/text |
-| `/register` | Create account (email verification sent) |
-| `/login` | Log in (passkey first; password/PIN fallback) |
-| `/logout` | Log out |
-| `/passkey` | Add a passkey (requires you to be logged in + email verified) |
-| `/paste` | Upload clipboard text |
-| `/copy` | Copy latest stored text to clipboard |
-| `/clear` | Clear stored file/text (and attempts to clear clipboard) |
-| `/status` (or `/me`) | Tells you if you’re in `public` or `private` mode |
-| `/help` | Quick cheat sheet |
+| Command                  | What it does                                                  |
+| ------------------------ | ------------------------------------------------------------- |
+| `divya`                | Reveals the upload section                                    |
+| `moti`                 | Downloads/views the latest stored file/text                   |
+| `/register`            | Create account (email verification sent)                      |
+| `/login`               | Log in (passkey first; password/PIN fallback)                 |
+| `/logout`              | Log out                                                       |
+| `/passkey`             | Add a passkey (requires you to be logged in + email verified) |
+| `/paste`               | Upload clipboard text                                         |
+| `/copy`                | Copy latest stored text to clipboard                          |
+| `/clear`               | Clear stored file/text (and attempts to clear clipboard)      |
+| `/status` (or `/me`) | Tells you if you’re in `public` or `private` mode        |
+| `/help`                | Quick cheat sheet                                             |
 
 Notes:
 
@@ -256,26 +256,3 @@ If you deploy DShare publicly, do these first:
 - decide whether you truly want public mode enabled
 
 Also consider putting DShare behind a reverse proxy (nginx) and/or Cloudflare for rate limiting.
-
----
-
-## GitHub Pages & Wiki
-
-This repo includes docs scaffolding:
-
-- GitHub Pages content lives in `docs/`
-- Wiki-ready markdown pages live in `wiki/`
-
-### Enable GitHub Pages
-
-1. Push this repo to GitHub.
-2. Go to **Settings → Pages**.
-3. Choose **Deploy from a branch** → select `main` and `/docs`.
-
-### Use the Wiki pages
-
-GitHub Wikis are separate git repos.
-
-1. Enable **Wiki** in your GitHub repo settings.
-2. Clone the wiki repo (GitHub shows the URL in the Wiki tab).
-3. Copy files from `wiki/` into that wiki repo and push.
