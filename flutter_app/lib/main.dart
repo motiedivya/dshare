@@ -694,12 +694,13 @@ class _HomePageState extends State<HomePage> {
               Positioned.fill(
                 child: IgnorePointer(
                   child: Center(
-                    child: Text(
-                      'DShare',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.12),
-                        fontSize: 24,
-                        letterSpacing: 3,
+                    child: Opacity(
+                      opacity: 0.18,
+                      child: Image.asset(
+                        'assets/dshare_icon.png',
+                        width: 140,
+                        height: 140,
+                        fit: BoxFit.contain,
                       ),
                     ),
                   ),

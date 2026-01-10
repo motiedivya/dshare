@@ -1,7 +1,10 @@
+{% load static %}
 <!DOCTYPE html>
 <html class="dark">
   <head>
     <title>Home</title>
+    <link rel="icon" type="image/png" href="{% static 'dshare_icon.png' %}" />
+    <link rel="apple-touch-icon" href="{% static 'dshare_icon.png' %}" />
     <link
       href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
       rel="stylesheet"
@@ -9,6 +12,11 @@
   </head>
   <body class="bg-black text-white font-sans">
     <div class="min-h-screen flex items-center justify-center">
+      <img
+        src="{% static 'dshare_icon.png' %}"
+        alt="DShare"
+        class="pointer-events-none fixed top-4 left-4 w-8 h-8 opacity-70"
+      />
       <div
         id="mode-watermark"
         class="hidden pointer-events-none fixed inset-0 flex items-center justify-center text-white text-6xl font-bold opacity-5 select-none"
