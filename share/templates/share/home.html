@@ -1,392 +1,529 @@
 <!DOCTYPE html>
 <html class="dark">
-<head>
+  <head>
     <title>Home</title>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-</head>
-<body class="bg-black text-white font-sans">
+    <link
+      href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
+      rel="stylesheet"
+    />
+  </head>
+  <body class="bg-black text-white font-sans">
     <div class="min-h-screen flex items-center justify-center">
-        <div id="mode-watermark" class="hidden pointer-events-none fixed inset-0 flex items-center justify-center text-white text-6xl font-bold opacity-5 select-none">
-            PUBLIC
-        </div>
-        <div id="toast" class="hidden fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white text-black px-4 py-2 rounded opacity-90 text-sm select-none"></div>
-        <div id="upload-section" class="hidden">
-            <form id="upload-form" method="post" enctype="multipart/form-data" action="/upload/">
-                {% csrf_token %}
-                <input type="file" name="file" class="mb-4 p-2 bg-white text-black">
-                <button type="submit" class="p-2 bg-white text-black">Upload File</button>
-            </form>
-            <button onclick="pasteText()" class="p-2 bg-white text-black">Paste Clipboard</button>
-        </div>
+      <div
+        id="mode-watermark"
+        class="hidden pointer-events-none fixed inset-0 flex items-center justify-center text-white text-6xl font-bold opacity-5 select-none"
+      >
+        PUBLIC
+      </div>
+      <div
+        id="toast"
+        class="hidden fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white text-black px-4 py-2 rounded opacity-90 text-sm select-none"
+      ></div>
+      <div id="upload-section" class="hidden">
+        <form
+          id="upload-form"
+          method="post"
+          enctype="multipart/form-data"
+          action="/upload/"
+        >
+          {% csrf_token %}
+          <input type="file" name="file" class="mb-4 p-2 bg-white text-black" />
+          <button type="submit" class="p-2 bg-white text-black">
+            Upload File
+          </button>
+        </form>
+        <button onclick="pasteText()" class="p-2 bg-white text-black">
+          Paste Clipboard
+        </button>
+      </div>
     </div>
     <script>
-        let keyword = '';
-        const specialKeywordUpload = 'divya';
-        const specialKeywordDownload = 'moti';
-        const COMMAND_PREFIXES = ['/', '\\'];
+      let keyword = "";
+      const specialKeywordUpload = "divya";
+      const specialKeywordDownload = "moti";
+      const COMMAND_PREFIXES = ["/", "\\"];
 
-        function getCookie(name) {
-            const value = `; ${document.cookie}`;
-            const parts = value.split(`; ${name}=`);
-            if (parts.length === 2) return parts.pop().split(';').shift();
-            return '';
+      function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(";").shift();
+        return "";
+      }
+
+      function getCsrfToken() {
+        const cookie = getCookie("csrftoken");
+        if (cookie) return cookie;
+        const input = document.querySelector(
+          'input[name="csrfmiddlewaretoken"]'
+        );
+        return input ? input.value : "";
+      }
+
+      function toast(message, ms = 1800) {
+        const el = document.getElementById("toast");
+        el.textContent = message;
+        el.classList.remove("hidden");
+        clearTimeout(el._t);
+        el._t = setTimeout(() => el.classList.add("hidden"), ms);
+      }
+
+      function base64urlToUint8Array(base64url) {
+        const padding = "=".repeat((4 - (base64url.length % 4)) % 4);
+        const base64 = (base64url + padding)
+          .replace(/-/g, "+")
+          .replace(/_/g, "/");
+        const raw = atob(base64);
+        const out = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+        return out;
+      }
+
+      function uint8ArrayToBase64url(bytes) {
+        let binary = "";
+        for (let i = 0; i < bytes.length; i++)
+          binary += String.fromCharCode(bytes[i]);
+        const base64 = btoa(binary);
+        return base64
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/g, "");
+      }
+
+      function bufferToBase64url(buf) {
+        return uint8ArrayToBase64url(new Uint8Array(buf));
+      }
+
+      function preformatCreateOptions(opts) {
+        const out = { ...opts };
+        out.challenge = base64urlToUint8Array(out.challenge);
+        out.user = { ...out.user, id: base64urlToUint8Array(out.user.id) };
+        if (out.excludeCredentials) {
+          out.excludeCredentials = out.excludeCredentials.map((c) => ({
+            ...c,
+            id: base64urlToUint8Array(c.id),
+          }));
         }
+        return out;
+      }
 
-        function getCsrfToken() {
-            const cookie = getCookie('csrftoken');
-            if (cookie) return cookie;
-            const input = document.querySelector('input[name="csrfmiddlewaretoken"]');
-            return input ? input.value : '';
+      function preformatGetOptions(opts) {
+        const out = { ...opts };
+        out.challenge = base64urlToUint8Array(out.challenge);
+        if (out.allowCredentials) {
+          out.allowCredentials = out.allowCredentials.map((c) => ({
+            ...c,
+            id: base64urlToUint8Array(c.id),
+          }));
         }
+        return out;
+      }
 
-        function toast(message, ms = 1800) {
-            const el = document.getElementById('toast');
-            el.textContent = message;
-            el.classList.remove('hidden');
-            clearTimeout(el._t);
-            el._t = setTimeout(() => el.classList.add('hidden'), ms);
+      function credentialToJSON(cred) {
+        if (!cred) return null;
+        const response = cred.response || {};
+        const clientExtensionResults = cred.getClientExtensionResults
+          ? cred.getClientExtensionResults()
+          : {};
+        const rawId = bufferToBase64url(cred.rawId);
+        const obj = {
+          id: rawId,
+          rawId,
+          type: cred.type,
+          authenticatorAttachment: cred.authenticatorAttachment || null,
+          clientExtensionResults,
+          response: {
+            clientDataJSON: bufferToBase64url(response.clientDataJSON),
+          },
+        };
+        if (response.attestationObject) {
+          obj.response.attestationObject = bufferToBase64url(
+            response.attestationObject
+          );
         }
-
-        function base64urlToUint8Array(base64url) {
-            const padding = '='.repeat((4 - (base64url.length % 4)) % 4);
-            const base64 = (base64url + padding).replace(/-/g, '+').replace(/_/g, '/');
-            const raw = atob(base64);
-            const out = new Uint8Array(raw.length);
-            for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
-            return out;
+        if (response.authenticatorData) {
+          obj.response.authenticatorData = bufferToBase64url(
+            response.authenticatorData
+          );
         }
-
-        function uint8ArrayToBase64url(bytes) {
-            let binary = '';
-            for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-            const base64 = btoa(binary);
-            return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+        if (response.signature) {
+          obj.response.signature = bufferToBase64url(response.signature);
         }
-
-        function bufferToBase64url(buf) {
-            return uint8ArrayToBase64url(new Uint8Array(buf));
+        if (response.userHandle) {
+          obj.response.userHandle = bufferToBase64url(response.userHandle);
         }
+        return obj;
+      }
 
-        function preformatCreateOptions(opts) {
-            const out = { ...opts };
-            out.challenge = base64urlToUint8Array(out.challenge);
-            out.user = { ...out.user, id: base64urlToUint8Array(out.user.id) };
-            if (out.excludeCredentials) {
-                out.excludeCredentials = out.excludeCredentials.map((c) => ({ ...c, id: base64urlToUint8Array(c.id) }));
-            }
-            return out;
+      async function postJSON(url, data) {
+        const csrftoken = getCsrfToken();
+        const res = await fetch(url, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": csrftoken,
+          },
+          body: JSON.stringify(data || {}),
+        });
+        return res;
+      }
+
+      async function refreshMode() {
+        try {
+          const res = await fetch("/api/auth/me/", { method: "GET" });
+          const data = await res.json();
+          const isPublic = !(data && data.authenticated);
+          document
+            .getElementById("mode-watermark")
+            .classList.toggle("hidden", !isPublic);
+        } catch (_) {
+          document.getElementById("mode-watermark").classList.remove("hidden");
         }
+      }
 
-        function preformatGetOptions(opts) {
-            const out = { ...opts };
-            out.challenge = base64urlToUint8Array(out.challenge);
-            if (out.allowCredentials) {
-                out.allowCredentials = out.allowCredentials.map((c) => ({ ...c, id: base64urlToUint8Array(c.id) }));
-            }
-            return out;
-        }
+      function promptPassword(message) {
+        return new Promise((resolve) => {
+          const modal = document.createElement("div");
+          modal.className =
+            "fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50";
+          modal.innerHTML = `
+                    <div class="bg-gray-800 p-6 rounded shadow-lg flex flex-col gap-4 w-80">
+                        <label class="text-white text-sm font-bold">${message}</label>
+                        <input type="password" id="modal-input" class="p-2 bg-gray-700 text-white rounded outline-none focus:ring-2 focus:ring-blue-500" autofocus>
+                        <div class="flex justify-end gap-2">
+                            <button id="modal-cancel" class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-500">Cancel</button>
+                            <button id="modal-ok" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500">OK</button>
+                        </div>
+                    </div>
+                `;
+          document.body.appendChild(modal);
 
-        function credentialToJSON(cred) {
-            if (!cred) return null;
-            const response = cred.response || {};
-            const clientExtensionResults = cred.getClientExtensionResults ? cred.getClientExtensionResults() : {};
-            const rawId = bufferToBase64url(cred.rawId);
-            const obj = {
-                id: rawId,
-                rawId,
-                type: cred.type,
-                authenticatorAttachment: cred.authenticatorAttachment || null,
-                clientExtensionResults,
-                response: {
-                    clientDataJSON: bufferToBase64url(response.clientDataJSON),
-                },
-            };
-            if (response.attestationObject) {
-                obj.response.attestationObject = bufferToBase64url(response.attestationObject);
-            }
-            if (response.authenticatorData) {
-                obj.response.authenticatorData = bufferToBase64url(response.authenticatorData);
-            }
-            if (response.signature) {
-                obj.response.signature = bufferToBase64url(response.signature);
-            }
-            if (response.userHandle) {
-                obj.response.userHandle = bufferToBase64url(response.userHandle);
-            }
-            return obj;
-        }
+          const input = modal.querySelector("#modal-input");
+          const okBtn = modal.querySelector("#modal-ok");
+          const cancelBtn = modal.querySelector("#modal-cancel");
 
-        async function postJSON(url, data) {
-            const csrftoken = getCsrfToken();
-            const res = await fetch(url, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': csrftoken,
-                },
-                body: JSON.stringify(data || {}),
-            });
-            return res;
-        }
+          function close(val) {
+            modal.remove();
+            resolve(val);
+          }
 
-        async function refreshMode() {
-            try {
-                const res = await fetch('/api/auth/me/', { method: 'GET' });
-                const data = await res.json();
-                const isPublic = !(data && data.authenticated);
-                document.getElementById('mode-watermark').classList.toggle('hidden', !isPublic);
-            } catch (_) {
-                document.getElementById('mode-watermark').classList.remove('hidden');
-            }
-        }
+          okBtn.onclick = () => close(input.value);
+          cancelBtn.onclick = () => close(null);
+          input.onkeydown = (e) => {
+            if (e.key === "Enter") close(input.value);
+            if (e.key === "Escape") close(null);
+          };
 
-        async function commandRegister() {
-            const email = prompt('email');
-            if (!email) return;
+          // Allow clicking outside to cancel
+          modal.onclick = (e) => {
+            if (e.target === modal) close(null);
+          };
 
-            let canLogin = false;
-            try {
-                const statusRes = await postJSON('/api/auth/email-status/', { email });
-                const statusData = await statusRes.json();
-                canLogin = statusRes.ok && statusData && statusData.status === 'ok' && !!statusData.can_login;
-            } catch (_) {}
+          input.focus();
+        });
+      }
 
-            if (canLogin) {
-                const secret = prompt('password or pin');
-                if (!secret) {
-                    toast('fail');
-                    return;
-                }
-                const res = await postJSON('/api/auth/login/', { email, secret });
-                let data = null;
-                try { data = await res.json(); } catch (_) {}
-                if (res.ok && data && data.status === 'ok') {
-                    toast('ok');
-                    await refreshMode();
-                    return;
-                }
-                toast('fail');
-                return;
-            }
+      async function commandRegister() {
+        const email = prompt("email");
+        if (!email) return;
 
-            const password = prompt('password');
-            if (!password) {
-                toast('fail');
-                return;
-            }
-            const pin = prompt('pin (optional)') || '';
-            const res = await postJSON('/api/auth/register/', { email, password, pin });
-            let data = null;
-            try { data = await res.json(); } catch (_) {}
-            if (res.ok && data && data.status === 'ok') {
-                toast('sent');
-                return;
-            }
-            if (data && data.detail) console.error(data.detail);
-            toast('fail');
-        }
+        let canLogin = false;
+        try {
+          const statusRes = await postJSON("/api/auth/email-status/", {
+            email,
+          });
+          const statusData = await statusRes.json();
+          canLogin =
+            statusRes.ok &&
+            statusData &&
+            statusData.status === "ok" &&
+            !!statusData.can_login;
+        } catch (_) {}
 
-        async function tryPasskeyLogin() {
-            if (!window.PublicKeyCredential) return false;
-            try {
-                const begin = await postJSON('/api/webauthn/auth/begin/', {});
-                if (!begin.ok) return false;
-                const options = await begin.json();
-                const publicKey = preformatGetOptions(options.publicKey);
-                const assertion = await navigator.credentials.get({ publicKey });
-                const payload = credentialToJSON(assertion);
-                const complete = await postJSON('/api/webauthn/auth/complete/', payload);
-                if (!complete.ok) return false;
-                const out = await complete.json();
-                return out && out.status === 'ok';
-            } catch (_) {
-                return false;
-            }
-        }
-
-        async function commandLogin() {
-            const passkeyOk = await tryPasskeyLogin();
-            if (passkeyOk) {
-                toast('ok');
-                await refreshMode();
-                return;
-            }
-
-            const email = prompt('email');
-            if (!email) return;
-            const secret = prompt('password or pin');
-            if (!secret) {
-                toast('fail');
-                return;
-            }
-            const res = await postJSON('/api/auth/login/', { email, secret });
-            let data = null;
-            try { data = await res.json(); } catch (_) {}
-            if (res.ok && data && data.status === 'ok') {
-                toast('ok');
-                await refreshMode();
-                return;
-            }
-            toast('fail');
-        }
-
-        async function commandLogout() {
-            const res = await postJSON('/api/auth/logout/', {});
-            toast(res.ok ? 'ok' : 'fail');
+        if (canLogin) {
+          const secret = await promptPassword("Enter password or pin");
+          if (!secret) {
+            toast("fail");
+            return;
+          }
+          const res = await postJSON("/api/auth/login/", { email, secret });
+          let data = null;
+          try {
+            data = await res.json();
+          } catch (_) {}
+          if (res.ok && data && data.status === "ok") {
+            toast("ok");
             await refreshMode();
+            return;
+          }
+          toast("fail");
+          return;
         }
 
-        async function commandPasskey() {
-            if (!window.PublicKeyCredential) {
-                toast('fail');
-                return;
-            }
-            try {
-                const begin = await postJSON('/api/webauthn/register/begin/', {});
-                if (!begin.ok) {
-                    toast('fail');
-                    return;
-                }
-                const options = await begin.json();
-                const publicKey = preformatCreateOptions(options.publicKey);
-                const cred = await navigator.credentials.create({ publicKey });
-                const payload = credentialToJSON(cred);
-                const complete = await postJSON('/api/webauthn/register/complete/', payload);
-                toast(complete.ok ? 'ok' : 'fail');
-            } catch (_) {
-                toast('fail');
-            }
+        const password = await promptPassword("Create password");
+        if (!password) {
+          toast("fail");
+          return;
+        }
+        const pin = await promptPassword("Create pin (optional)") || "";
+        const res = await postJSON("/api/auth/register/", {
+          email,
+          password,
+          pin,
+        });
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (_) {}
+        if (res.ok && data && data.status === "ok") {
+          toast("sent");
+          return;
+        }
+        if (data && data.detail) console.error(data.detail);
+        toast("fail");
+      }
+
+      async function tryPasskeyLogin() {
+        if (!window.PublicKeyCredential) return false;
+        try {
+          const begin = await postJSON("/api/webauthn/auth/begin/", {});
+          if (!begin.ok) return false;
+          const options = await begin.json();
+          const publicKey = preformatGetOptions(options.publicKey);
+          const assertion = await navigator.credentials.get({ publicKey });
+          const payload = credentialToJSON(assertion);
+          const complete = await postJSON(
+            "/api/webauthn/auth/complete/",
+            payload
+          );
+          if (!complete.ok) return false;
+          const out = await complete.json();
+          return out && out.status === "ok";
+        } catch (_) {
+          return false;
+        }
+      }
+
+      async function commandLogin() {
+        const passkeyOk = await tryPasskeyLogin();
+        if (passkeyOk) {
+          toast("ok");
+          await refreshMode();
+          return;
         }
 
-        async function commandCopy() {
-            try {
-                const res = await fetch('/api/share/text/', { method: 'GET' });
-                const data = await res.json();
-                const text = (data && data.text) ? data.text : '';
-                await navigator.clipboard.writeText(text);
-                toast('ok');
-            } catch (_) {
-                toast('fail');
-            }
+        const email = prompt("email");
+        if (!email) return;
+        const secret = await promptPassword("Enter password or pin");
+        if (!secret) {
+          toast("fail");
+          return;
+        }
+        const res = await postJSON("/api/auth/login/", { email, secret });
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (_) {}
+        if (res.ok && data && data.status === "ok") {
+          toast("ok");
+          await refreshMode();
+          return;
+        }
+        toast("fail");
+      }
+
+      async function commandLogout() {
+        const res = await postJSON("/api/auth/logout/", {});
+        toast(res.ok ? "ok" : "fail");
+        await refreshMode();
+      }
+
+      async function commandPasskey() {
+        if (!window.PublicKeyCredential) {
+          toast("fail");
+          return;
+        }
+        try {
+          const begin = await postJSON("/api/webauthn/register/begin/", {});
+          if (!begin.ok) {
+            toast("fail");
+            return;
+          }
+          const options = await begin.json();
+          const publicKey = preformatCreateOptions(options.publicKey);
+          const cred = await navigator.credentials.create({ publicKey });
+          const payload = credentialToJSON(cred);
+          const complete = await postJSON(
+            "/api/webauthn/register/complete/",
+            payload
+          );
+          toast(complete.ok ? "ok" : "fail");
+        } catch (_) {
+          toast("fail");
+        }
+      }
+
+      async function commandCopy() {
+        try {
+          const res = await fetch("/api/share/text/", { method: "GET" });
+          const data = await res.json();
+          const text = data && data.text ? data.text : "";
+          await navigator.clipboard.writeText(text);
+          toast("ok");
+        } catch (_) {
+          toast("fail");
+        }
+      }
+
+      async function commandClear() {
+        try {
+          await postJSON("/api/share/clear/", {});
+          try {
+            await navigator.clipboard.writeText("");
+          } catch (_) {}
+          toast("ok");
+        } catch (_) {
+          toast("fail");
+        }
+      }
+
+      async function commandHelp() {
+        toast(
+          "/register /login /logout /passkey /status /copy /paste /clear",
+          3500
+        );
+      }
+
+      async function commandStatus() {
+        try {
+          const res = await fetch("/api/auth/me/", { method: "GET" });
+          const data = await res.json();
+          toast(data && data.authenticated ? "private" : "public");
+        } catch (_) {
+          toast("fail");
+        }
+      }
+
+      async function handleCommand(cmd) {
+        if (cmd === "register") return commandRegister();
+        if (cmd === "login") return commandLogin();
+        if (cmd === "logout") return commandLogout();
+        if (cmd === "passkey") return commandPasskey();
+        if (cmd === "status" || cmd === "me") return commandStatus();
+        if (cmd === "copy") return commandCopy();
+        if (cmd === "paste") return pasteText();
+        if (cmd === "clear") return commandClear();
+        if (cmd === "help" || cmd === "?") return commandHelp();
+        toast("fail");
+      }
+
+      document.addEventListener("keydown", function (e) {
+        const active = document.activeElement;
+        if (
+          active &&
+          (active.tagName === "INPUT" || active.tagName === "TEXTAREA")
+        )
+          return;
+        if (e.key.length !== 1) return;
+        keyword += e.key.toLowerCase();
+        if (keyword.length > 64) keyword = keyword.slice(-64);
+
+        if (keyword.includes(specialKeywordUpload)) {
+          document.getElementById("upload-section").classList.remove("hidden");
+          keyword = ""; // Reset keyword
+        }
+        if (keyword.includes(specialKeywordDownload)) {
+          window.location.href = "/download/";
+          keyword = ""; // Reset keyword
         }
 
-        async function commandClear() {
-            try {
-                await postJSON('/api/share/clear/', {});
-                try { await navigator.clipboard.writeText(''); } catch (_) {}
-                toast('ok');
-            } catch (_) {
-                toast('fail');
-            }
+        for (const prefix of COMMAND_PREFIXES) {
+          const idx = keyword.lastIndexOf(prefix);
+          if (idx === -1) continue;
+          const maybe = keyword.slice(idx + 1);
+          const known = [
+            "register",
+            "login",
+            "logout",
+            "passkey",
+            "status",
+            "me",
+            "copy",
+            "paste",
+            "clear",
+            "help",
+            "?",
+          ];
+          if (known.includes(maybe)) {
+            keyword = "";
+            handleCommand(maybe);
+            break;
+          }
         }
+      });
 
-        async function commandHelp() {
-            toast('/register /login /logout /passkey /status /copy /paste /clear', 3500);
+      async function pasteText() {
+        try {
+          const text = await navigator.clipboard.readText();
+          const formData = new FormData();
+          formData.append("text", text);
+          const response = await fetch("/upload/", {
+            method: "POST",
+            credentials: "same-origin",
+            body: formData,
+            headers: {
+              "X-CSRFToken": getCsrfToken(),
+            },
+          });
+          let data = null;
+          try {
+            data = await response.json();
+          } catch (_) {}
+          toast(response.ok && data && data.status === "ok" ? "ok" : "fail");
+        } catch (_) {
+          toast("fail");
         }
+      }
 
-        async function commandStatus() {
-            try {
-                const res = await fetch('/api/auth/me/', { method: 'GET' });
-                const data = await res.json();
-                toast((data && data.authenticated) ? 'private' : 'public');
-            } catch (_) {
-                toast('fail');
-            }
-        }
-
-        async function handleCommand(cmd) {
-            if (cmd === 'register') return commandRegister();
-            if (cmd === 'login') return commandLogin();
-            if (cmd === 'logout') return commandLogout();
-            if (cmd === 'passkey') return commandPasskey();
-            if (cmd === 'status' || cmd === 'me') return commandStatus();
-            if (cmd === 'copy') return commandCopy();
-            if (cmd === 'paste') return pasteText();
-            if (cmd === 'clear') return commandClear();
-            if (cmd === 'help' || cmd === '?') return commandHelp();
-            toast('fail');
-        }
-
-        document.addEventListener('keydown', function (e) {
-            const active = document.activeElement;
-            if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
-            if (e.key.length !== 1) return;
-            keyword += e.key.toLowerCase();
-            if (keyword.length > 64) keyword = keyword.slice(-64);
-
-            if (keyword.includes(specialKeywordUpload)) {
-                document.getElementById('upload-section').classList.remove('hidden');
-                keyword = '';  // Reset keyword
-            }
-            if (keyword.includes(specialKeywordDownload)) {
-                window.location.href = '/download/';
-                keyword = '';  // Reset keyword
-            }
-
-            for (const prefix of COMMAND_PREFIXES) {
-                const idx = keyword.lastIndexOf(prefix);
-                if (idx === -1) continue;
-                const maybe = keyword.slice(idx + 1);
-                const known = ['register', 'login', 'logout', 'passkey', 'status', 'me', 'copy', 'paste', 'clear', 'help', '?'];
-                if (known.includes(maybe)) {
-                    keyword = '';
-                    handleCommand(maybe);
-                    break;
-                }
-            }
+      document
+        .getElementById("upload-form")
+        .addEventListener("submit", function (e) {
+          e.preventDefault();
+          const formData = new FormData(this);
+          formData.delete("csrfmiddlewaretoken");
+          fetch("/upload/", {
+            method: "POST",
+            credentials: "same-origin",
+            body: formData,
+            headers: {
+              "X-CSRFToken": getCsrfToken(),
+            },
+          })
+            .then(async (response) => {
+              let data = null;
+              try {
+                data = await response.json();
+              } catch (_) {}
+              toast(
+                response.ok && data && data.status === "ok" ? "ok" : "fail"
+              );
+            })
+            .catch(() => toast("fail"));
         });
 
-        async function pasteText() {
-            try {
-                const text = await navigator.clipboard.readText();
-                const formData = new FormData();
-                formData.append('text', text);
-                const response = await fetch('/upload/', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    body: formData,
-                    headers: {
-                        'X-CSRFToken': getCsrfToken(),
-                    }
-                });
-                let data = null;
-                try { data = await response.json(); } catch (_) {}
-                toast(response.ok && data && data.status === 'ok' ? 'ok' : 'fail');
-            } catch (_) {
-                toast('fail');
-            }
-        }
+      refreshMode();
 
-        document.getElementById('upload-form').addEventListener('submit', function (e) {
-            e.preventDefault();
-            const formData = new FormData(this);
-            formData.delete('csrfmiddlewaretoken');
-            fetch('/upload/', {
-                method: 'POST',
-                credentials: 'same-origin',
-                body: formData,
-                headers: {
-                    'X-CSRFToken': getCsrfToken(),
-                }
-            }).then(async (response) => {
-                let data = null;
-                try { data = await response.json(); } catch (_) {}
-                toast(response.ok && data && data.status === 'ok' ? 'ok' : 'fail');
-            }).catch(() => toast('fail'));
-        });
-
-        refreshMode();
-
-        const params = new URLSearchParams(window.location.search);
-        if (params.get('verified') === '1' || params.get('setup') === 'passkey') {
-            toast('ok');
-            params.delete('verified');
-            params.delete('setup');
-            const q = params.toString();
-            const clean = q ? `${window.location.pathname}?${q}` : window.location.pathname;
-            window.history.replaceState({}, '', clean);
-        }
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("verified") === "1" || params.get("setup") === "passkey") {
+        toast("ok");
+        params.delete("verified");
+        params.delete("setup");
+        const q = params.toString();
+        const clean = q
+          ? `${window.location.pathname}?${q}`
+          : window.location.pathname;
+        window.history.replaceState({}, "", clean);
+      }
     </script>
-</body>
+  </body>
 </html>

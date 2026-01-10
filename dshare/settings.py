@@ -244,7 +244,7 @@ EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "1") == "1"
 EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "0") == "1"
-EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "10"))
+EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "30"))
 
 # DShare knobs
 DSHARE_EMAIL_TOKEN_MAX_AGE_SECONDS = int(
