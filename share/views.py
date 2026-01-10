@@ -143,6 +143,7 @@ def _send_verification_email(*, request: HttpRequest, user, token: str) -> None:
     )
     message.attach_alternative(html_body, "text/html")
     try:
+        logger.info(f"Sending email to {user.email} via {settings.EMAIL_HOST}:{settings.EMAIL_PORT} (SSL={settings.EMAIL_USE_SSL}, TLS={settings.EMAIL_USE_TLS}) Timeout={settings.EMAIL_TIMEOUT}")
         message.send(fail_silently=False)
     except Exception:
         logger.exception("Failed to send verification email")
