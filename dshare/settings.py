@@ -68,10 +68,29 @@ def _csv_env(name: str, default: str) -> list[str]:
 # Security handling for Railway/Cloudflare (SSL Termination)
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-ALLOWED_HOSTS = _csv_env("DJANGO_ALLOWED_HOSTS", "*")
-# Ensure we have at least * if empty
-if not ALLOWED_HOSTS:
-    ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = ["*"]  # FORCE FOR DEBUGGING
+print(f"DEBUG: ALLOWED_HOSTS set to {ALLOWED_HOSTS}")
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'django.security.DisallowedHost': {
+            'handlers': ['console'],
+            'level': 'CRITICAL',
+        },
+         'django.request': {
+            'handlers': ['console'],
+            'level': 'DEBUG',  # Changed to DEBUG to see all request details
+            'propagate': True,
+        },
+    },
+}
 
 CSRF_TRUSTED_ORIGINS = _csv_env("DJANGO_CSRF_TRUSTED_ORIGINS", "https://*.railway.app,https://*.up.railway.app,https://dshare.me,https://*.dshare.me")
 
