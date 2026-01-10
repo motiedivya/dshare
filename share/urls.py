@@ -8,6 +8,7 @@ from .views import (
     api_auth_set_credentials,
     api_share_clear,
     api_share_text,
+    api_debug_email,
     api_webauthn_auth_begin,
     api_webauthn_auth_complete,
     api_webauthn_register_begin,
@@ -32,6 +33,7 @@ urlpatterns = [
     path("api/auth/credentials/", api_auth_set_credentials, name="api_auth_set_credentials"),
     path("api/auth/logout/", api_auth_logout, name="api_auth_logout"),
     path("api/auth/me/", api_auth_me, name="api_auth_me"),
+    path("api/debug/email/", api_debug_email, name="api_debug_email"),
     path(
         "api/webauthn/register/begin/",
         api_webauthn_register_begin,

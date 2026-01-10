@@ -250,6 +250,9 @@ DSHARE_EMAIL_CONFIGURED = not (
     EMAIL_BACKEND == "django.core.mail.backends.smtp.EmailBackend"
     and not _RAW_EMAIL_HOST
 )
+DSHARE_EMAIL_PROVIDER = os.getenv("DSHARE_EMAIL_PROVIDER", "smtp").strip().lower()
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+DSHARE_ADMIN_TOKEN = os.getenv("DSHARE_ADMIN_TOKEN", "")
 
 # DShare knobs
 DSHARE_EMAIL_TOKEN_MAX_AGE_SECONDS = int(

@@ -2,6 +2,8 @@ import json
 import logging
 import os
 from urllib.parse import urlencode
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
@@ -86,6 +88,101 @@ def _get_or_create_profile(user) -> UserProfile:
     return profile
 
 
+def _debug_email_allowed(request: HttpRequest, data: dict | None = None) -> bool:
+    if settings.DEBUG:
+        return True
+    token = getattr(settings, "DSHARE_ADMIN_TOKEN", "")
+    if not token:
+        return False
+    provided = request.headers.get("X-Dshare-Admin-Token")
+    if not provided and data:
+        provided = data.get("token")
+    return provided == token
+
+
+def _send_email_message(
+    *,
+    to_email: str,
+    subject: str,
+    text_body: str,
+    html_body: str,
+) -> None:
+    def send_via_resend_api() -> None:
+        api_key = getattr(settings, "RESEND_API_KEY", "")
+        if not api_key:
+            raise RuntimeError("RESEND_API_KEY is not set")
+        from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
+        if not from_email:
+            raise RuntimeError("DEFAULT_FROM_EMAIL is not set")
+        payload = {
+            "from": from_email,
+            "to": [to_email],
+            "subject": subject,
+            "text": text_body,
+            "html": html_body,
+        }
+        data = json.dumps(payload).encode("utf-8")
+        req = Request(
+            "https://api.resend.com/emails",
+            data=data,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        timeout = getattr(settings, "EMAIL_TIMEOUT", 15)
+        try:
+            with urlopen(req, timeout=timeout) as resp:
+                status = resp.getcode()
+                if status and status >= 400:
+                    body = resp.read().decode("utf-8", errors="replace")
+                    raise RuntimeError(f"Resend API error {status}: {body[:500]}")
+        except HTTPError as exc:
+            body = ""
+            if exc.fp:
+                body = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Resend API error {exc.code}: {body[:500]}")
+        except URLError as exc:
+            raise RuntimeError(f"Resend API request failed: {exc}")
+
+    provider = getattr(settings, "DSHARE_EMAIL_PROVIDER", "smtp")
+    if provider == "resend":
+        logger.info(
+            f"Sending email to {to_email} via Resend API Timeout={settings.EMAIL_TIMEOUT}"
+        )
+        send_via_resend_api()
+        return
+
+    if not getattr(settings, "DSHARE_EMAIL_CONFIGURED", True):
+        raise RuntimeError(
+            "SMTP backend selected but EMAIL_HOST is not set. "
+            "Configure SMTP or use the console email backend."
+        )
+
+    message = EmailMultiAlternatives(
+        subject=subject,
+        body=text_body,
+        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+        to=[to_email],
+    )
+    message.attach_alternative(html_body, "text/html")
+    try:
+        logger.info(
+            f"Sending email to {to_email} via {settings.EMAIL_HOST}:{settings.EMAIL_PORT} "
+            f"(SSL={settings.EMAIL_USE_SSL}, TLS={settings.EMAIL_USE_TLS}) "
+            f"Timeout={settings.EMAIL_TIMEOUT}"
+        )
+        message.send(fail_silently=False)
+    except Exception:
+        if getattr(settings, "RESEND_API_KEY", ""):
+            logger.info("SMTP failed; retrying via Resend API")
+            send_via_resend_api()
+            return
+        logger.exception("Failed to send verification email")
+        raise
+
+
 @require_POST
 def api_auth_email_status(request: HttpRequest) -> JsonResponse:
     data = _parse_json(request)
@@ -115,11 +212,6 @@ def api_auth_email_status(request: HttpRequest) -> JsonResponse:
 
 
 def _send_verification_email(*, request: HttpRequest, user, token: str) -> None:
-    if not getattr(settings, "DSHARE_EMAIL_CONFIGURED", True):
-        raise RuntimeError(
-            "SMTP backend selected but EMAIL_HOST is not set. "
-            "Configure SMTP or use the console email backend."
-        )
     verify_url = request.build_absolute_uri(
         reverse("auth_verify_email", kwargs={"token": token})
     )
@@ -140,24 +232,59 @@ def _send_verification_email(*, request: HttpRequest, user, token: str) -> None:
 </html>
 """.strip()
 
-    message = EmailMultiAlternatives(
+    _send_email_message(
+        to_email=user.email,
         subject=subject,
-        body=text_body,
-        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-        to=[user.email],
+        text_body=text_body,
+        html_body=html_body,
     )
-    message.attach_alternative(html_body, "text/html")
-    try:
-        logger.info(f"Sending email to {user.email} via {settings.EMAIL_HOST}:{settings.EMAIL_PORT} (SSL={settings.EMAIL_USE_SSL}, TLS={settings.EMAIL_USE_TLS}) Timeout={settings.EMAIL_TIMEOUT}")
-        message.send(fail_silently=False)
-    except Exception:
-        logger.exception("Failed to send verification email")
-        raise
 
 
 @ensure_csrf_cookie
 def home_view(request):
     return render(request, "share/home.html")
+
+
+@require_POST
+def api_debug_email(request: HttpRequest) -> JsonResponse:
+    data = _parse_json(request)
+    if not _debug_email_allowed(request, data):
+        return JsonResponse({"status": "fail", "code": "forbidden"}, status=403)
+
+    email = (data.get("to") or data.get("email") or "").strip().lower()
+    if not email:
+        return JsonResponse({"status": "fail", "code": "missing_email"}, status=400)
+
+    try:
+        validate_email(email)
+    except ValidationError:
+        return JsonResponse({"status": "fail", "code": "invalid_email"}, status=400)
+
+    subject = "DShare test email"
+    text_body = "DShare email test. If you received this, email delivery works."
+    html_body = """
+<!doctype html>
+<html>
+  <body style="margin:0;padding:0;font-family:Arial, sans-serif;">
+    <p>DShare email test. If you received this, email delivery works.</p>
+  </body>
+</html>
+""".strip()
+
+    try:
+        _send_email_message(
+            to_email=email,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+        )
+    except Exception as exc:
+        payload = {"status": "fail", "code": "email_send_failed"}
+        if settings.DEBUG:
+            payload["detail"] = str(exc)[:500]
+        return JsonResponse(payload, status=502)
+
+    return JsonResponse({"status": "ok", "to": email})
 
 
 @require_POST
