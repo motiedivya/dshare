@@ -478,12 +478,13 @@ def _file_size(uploaded_file) -> int:
 
 
 def _delete_field_file(field_file) -> None:
+    if not field_file:
+        return
     try:
-        name = field_file.name
-    except Exception:
-        name = None
-    if name:
-        default_storage.delete(name)
+        logger.info(f"Deleting old file: {field_file.name}")
+        field_file.delete(save=False)
+    except Exception as e:
+        logger.error(f"Failed to delete file {field_file.name}: {e}")
 
 
 def _get_or_create_user_share(user) -> UserShareState:
