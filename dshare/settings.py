@@ -64,8 +64,17 @@ def _csv_env(name: str, default: str) -> list[str]:
     return [p for p in parts if p]
 
 
+
+# Security handling for Railway/Cloudflare (SSL Termination)
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 ALLOWED_HOSTS = _csv_env("DJANGO_ALLOWED_HOSTS", "*")
-CSRF_TRUSTED_ORIGINS = _csv_env("DJANGO_CSRF_TRUSTED_ORIGINS", "https://*.railway.app,https://*.up.railway.app")
+# Ensure we have at least * if empty
+if not ALLOWED_HOSTS:
+    ALLOWED_HOSTS = ["*"]
+
+CSRF_TRUSTED_ORIGINS = _csv_env("DJANGO_CSRF_TRUSTED_ORIGINS", "https://*.railway.app,https://*.up.railway.app,https://dshare.me,https://*.dshare.me")
+
 
 
 
