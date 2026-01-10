@@ -1,0 +1,63 @@
+name: Flutter Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "flutter_app/**"
+      - ".github/workflows/flutter-build.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "flutter_app/**"
+      - ".github/workflows/flutter-build.yml"
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: android
+            build_cmd: flutter build apk --release --build-number ${{ github.run_number }}
+            artifact_name: android-apk
+            artifact_path: flutter_app/build/app/outputs/flutter-apk/app-release.apk
+          - os: windows-latest
+            target: windows
+            build_cmd: flutter build windows --release --build-number ${{ github.run_number }}
+            artifact_name: windows-release
+            artifact_path: flutter_app/build/windows/x64/runner/Release/
+          - os: macos-latest
+            target: ios
+            build_cmd: flutter build ios --release --no-codesign --build-number ${{ github.run_number }}
+            artifact_name: ios-app
+            artifact_path: flutter_app/build/ios/iphoneos/Runner.app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.35.7"
+          channel: "stable"
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+        working-directory: flutter_app
+
+      - name: Build
+        run: ${{ matrix.build_cmd }}
+        working-directory: flutter_app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
