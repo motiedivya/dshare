@@ -576,16 +576,7 @@ def download_view(request: HttpRequest) -> HttpResponse:
     _maybe_expire_share(share=share, ttl_seconds=ttl_seconds)
 
     if share.file:
-        try:
-            return FileResponse(
-                open(share.file.path, "rb"),
-                as_attachment=True,
-                filename=os.path.basename(share.file.name),
-            )
-        except FileNotFoundError:
-            _delete_field_file(share.file)
-            share.file = None
-            share.save(update_fields=["file", "updated_at"])
+        return redirect(share.file.url)
 
     if share.text:
         return HttpResponse(share.text, content_type="text/plain")
