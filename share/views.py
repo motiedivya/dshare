@@ -115,6 +115,11 @@ def api_auth_email_status(request: HttpRequest) -> JsonResponse:
 
 
 def _send_verification_email(*, request: HttpRequest, user, token: str) -> None:
+    if not getattr(settings, "DSHARE_EMAIL_CONFIGURED", True):
+        raise RuntimeError(
+            "SMTP backend selected but EMAIL_HOST is not set. "
+            "Configure SMTP or use the console email backend."
+        )
     verify_url = request.build_absolute_uri(
         reverse("auth_verify_email", kwargs={"token": token})
     )

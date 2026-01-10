@@ -238,14 +238,18 @@ EMAIL_BACKEND = os.getenv(
     "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
 )
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "dshare@localhost")
-EMAIL_HOST = os.getenv("EMAIL_HOST", "localhost")
+_RAW_EMAIL_HOST = os.getenv("EMAIL_HOST", "").strip()
+EMAIL_HOST = _RAW_EMAIL_HOST or "localhost"
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "1") == "1"
 EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "0") == "1"
-EMAIL_TIMEOUT = 15
-# EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "20"))
+EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "15"))
+DSHARE_EMAIL_CONFIGURED = not (
+    EMAIL_BACKEND == "django.core.mail.backends.smtp.EmailBackend"
+    and not _RAW_EMAIL_HOST
+)
 
 # DShare knobs
 DSHARE_EMAIL_TOKEN_MAX_AGE_SECONDS = int(
