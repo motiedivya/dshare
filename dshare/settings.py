@@ -205,6 +205,7 @@ if AWS_ACCESS_KEY_ID:
                 "region_name": "auto",
                 "signature_version": AWS_S3_SIGNATURE_VERSION,
                 "querystring_auth": True,
+                "addressing_style": "path",
             },
         },
         "staticfiles": {
