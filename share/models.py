@@ -1,4 +1,5 @@
 import secrets
+import uuid
 
 from django.conf import settings
 from django.db import models
@@ -70,4 +71,24 @@ class PublicShareState(models.Model):
     id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
     file = models.FileField(upload_to="uploads/public/", null=True, blank=True)
     text = models.TextField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class UploadSession(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="upload_sessions",
+        null=True,
+        blank=True,
+    )
+    is_public = models.BooleanField(default=True)
+    filename = models.CharField(max_length=255)
+    content_type = models.CharField(max_length=255, blank=True)
+    total_size = models.BigIntegerField()
+    chunk_size = models.PositiveIntegerField()
+    total_chunks = models.PositiveIntegerField()
+    received_chunks = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

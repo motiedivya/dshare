@@ -1,6 +1,9 @@
 import json
 import logging
+import math
 import os
+import shutil
+import tempfile
 from urllib.parse import urlencode
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -9,6 +12,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.core.files import File
 from django.core.files.storage import default_storage
 from django.core.mail import EmailMultiAlternatives
 from django.core.validators import validate_email
@@ -44,6 +48,7 @@ except ModuleNotFoundError:  # pragma: no cover
 from .models import (
     EmailVerificationToken,
     PublicShareState,
+    UploadSession,
     UserProfile,
     UserShareState,
     WebAuthnCredential,
@@ -642,6 +647,271 @@ def _maybe_expire_share(*, share, ttl_seconds: int) -> None:
     share.file = None
     share.text = None
     share.save(update_fields=["file", "text", "updated_at"])
+
+
+def _upload_chunk_root() -> str:
+    base_dir = getattr(settings, "MEDIA_ROOT", None)
+    if base_dir:
+        return os.path.join(base_dir, ".dshare_chunks")
+    return os.path.join(tempfile.gettempdir(), "dshare_chunks")
+
+
+def _upload_session_dir(session_id: str) -> str:
+    return os.path.join(_upload_chunk_root(), session_id)
+
+
+def _upload_chunk_path(session_id: str, index: int) -> str:
+    return os.path.join(_upload_session_dir(session_id), f"{index:06d}.part")
+
+
+def _delete_upload_session_files(session: UploadSession) -> None:
+    try:
+        shutil.rmtree(_upload_session_dir(str(session.id)), ignore_errors=True)
+    except Exception:
+        logger.exception("Failed to delete upload session files")
+
+
+def _cleanup_expired_upload_sessions() -> None:
+    ttl_seconds = int(
+        getattr(settings, "DSHARE_UPLOAD_SESSION_TTL_SECONDS", 60 * 60 * 24)
+    )
+    if ttl_seconds <= 0:
+        return
+    cutoff = timezone.now() - timezone.timedelta(seconds=ttl_seconds)
+    expired = UploadSession.objects.filter(updated_at__lt=cutoff)
+    for session in expired:
+        _delete_upload_session_files(session)
+    expired.delete()
+
+
+@require_POST
+def api_upload_start(request: HttpRequest) -> JsonResponse:
+    data = _parse_json(request)
+    filename = (data.get("filename") or "").strip()
+    total_size = int(data.get("size") or 0)
+    content_type = (data.get("content_type") or "").strip()
+    chunk_size = int(data.get("chunk_size") or 0) or 1024 * 1024
+    upload_id = (data.get("upload_id") or "").strip()
+
+    if not filename or total_size <= 0:
+        return JsonResponse({"status": "fail"}, status=400)
+
+    if chunk_size <= 0:
+        chunk_size = 1024 * 1024
+
+    max_bytes = int(
+        getattr(
+            settings,
+            "DSHARE_PUBLIC_MAX_UPLOAD_BYTES"
+            if not request.user.is_authenticated
+            else "DSHARE_USER_MAX_UPLOAD_BYTES",
+            10 * 1024 * 1024,
+        )
+    )
+    if total_size > max_bytes:
+        return JsonResponse({"status": "fail"}, status=413)
+
+    _cleanup_expired_upload_sessions()
+
+    is_public = not request.user.is_authenticated
+    user = None if is_public else request.user
+
+    session = None
+    if upload_id:
+        try:
+            session = UploadSession.objects.get(id=upload_id)
+        except (UploadSession.DoesNotExist, ValueError):
+            session = None
+        if session:
+            if session.is_public != is_public or session.user_id != (user.id if user else None):
+                session = None
+            elif (
+                session.filename != filename
+                or session.total_size != total_size
+                or session.chunk_size != chunk_size
+            ):
+                session = None
+
+    total_chunks = max(1, math.ceil(total_size / chunk_size))
+    if session is None:
+        session = UploadSession.objects.create(
+            user=user,
+            is_public=is_public,
+            filename=filename,
+            content_type=content_type,
+            total_size=total_size,
+            chunk_size=chunk_size,
+            total_chunks=total_chunks,
+            received_chunks=[],
+        )
+    else:
+        received = set()
+        for idx in session.received_chunks or []:
+            try:
+                value = int(idx)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= value < total_chunks:
+                received.add(value)
+        session.received_chunks = sorted(received)
+        session.total_chunks = total_chunks
+        session.save(update_fields=["received_chunks", "total_chunks", "updated_at"])
+
+    return JsonResponse(
+        {
+            "status": "ok",
+            "upload_id": str(session.id),
+            "chunk_size": session.chunk_size,
+            "total_chunks": session.total_chunks,
+            "received_chunks": session.received_chunks,
+        }
+    )
+
+
+@require_POST
+def api_upload_chunk(request: HttpRequest) -> JsonResponse:
+    upload_id = (request.POST.get("upload_id") or "").strip()
+    index_raw = request.POST.get("index")
+    if not upload_id or index_raw is None:
+        return JsonResponse({"status": "fail"}, status=400)
+
+    try:
+        index = int(index_raw)
+    except (TypeError, ValueError):
+        return JsonResponse({"status": "fail"}, status=400)
+
+    try:
+        session = UploadSession.objects.get(id=upload_id)
+    except (UploadSession.DoesNotExist, ValueError):
+        return JsonResponse({"status": "fail"}, status=404)
+
+    is_public = not request.user.is_authenticated
+    if session.is_public != is_public:
+        return JsonResponse({"status": "fail"}, status=403)
+    if session.user_id and request.user.is_authenticated:
+        if session.user_id != request.user.id:
+            return JsonResponse({"status": "fail"}, status=403)
+    if session.user_id and not request.user.is_authenticated:
+        return JsonResponse({"status": "fail"}, status=403)
+
+    if index < 0 or index >= session.total_chunks:
+        return JsonResponse({"status": "fail"}, status=400)
+
+    if "chunk" not in request.FILES:
+        return JsonResponse({"status": "fail"}, status=400)
+
+    uploaded_file = request.FILES["chunk"]
+    if index < session.total_chunks - 1 and _file_size(uploaded_file) > session.chunk_size:
+        return JsonResponse({"status": "fail"}, status=413)
+
+    session_dir = _upload_session_dir(str(session.id))
+    os.makedirs(session_dir, exist_ok=True)
+    chunk_path = _upload_chunk_path(str(session.id), index)
+    with open(chunk_path, "wb") as handle:
+        for chunk in uploaded_file.chunks():
+            handle.write(chunk)
+
+    received = set()
+    for idx in session.received_chunks or []:
+        try:
+            received.add(int(idx))
+        except (TypeError, ValueError):
+            continue
+    received.add(index)
+    session.received_chunks = sorted(received)
+    session.save(update_fields=["received_chunks", "updated_at"])
+
+    return JsonResponse(
+        {
+            "status": "ok",
+            "received": len(session.received_chunks),
+            "total": session.total_chunks,
+        }
+    )
+
+
+@require_POST
+def api_upload_complete(request: HttpRequest) -> JsonResponse:
+    data = _parse_json(request)
+    upload_id = (data.get("upload_id") or request.POST.get("upload_id") or "").strip()
+    if not upload_id:
+        return JsonResponse({"status": "fail"}, status=400)
+
+    try:
+        session = UploadSession.objects.get(id=upload_id)
+    except (UploadSession.DoesNotExist, ValueError):
+        return JsonResponse({"status": "fail"}, status=404)
+
+    is_public = not request.user.is_authenticated
+    if session.is_public != is_public:
+        return JsonResponse({"status": "fail"}, status=403)
+    if session.user_id and request.user.is_authenticated:
+        if session.user_id != request.user.id:
+            return JsonResponse({"status": "fail"}, status=403)
+    if session.user_id and not request.user.is_authenticated:
+        return JsonResponse({"status": "fail"}, status=403)
+
+    received = set()
+    for idx in session.received_chunks or []:
+        try:
+            received.add(int(idx))
+        except (TypeError, ValueError):
+            continue
+    if len(received) != session.total_chunks:
+        missing = [i for i in range(session.total_chunks) if i not in received]
+        return JsonResponse(
+            {"status": "fail", "missing_chunks": missing}, status=409
+        )
+
+    os.makedirs(_upload_chunk_root(), exist_ok=True)
+    temp_path = os.path.join(_upload_chunk_root(), f"{session.id}.tmp")
+    completed = False
+    try:
+        with open(temp_path, "wb") as out:
+            for index in range(session.total_chunks):
+                chunk_path = _upload_chunk_path(str(session.id), index)
+                if not os.path.exists(chunk_path):
+                    return JsonResponse({"status": "fail"}, status=409)
+                with open(chunk_path, "rb") as chunk_file:
+                    shutil.copyfileobj(chunk_file, out)
+
+        if os.path.getsize(temp_path) != session.total_size:
+            return JsonResponse({"status": "fail"}, status=409)
+
+        share = (
+            _get_or_create_public_share()
+            if is_public
+            else _get_or_create_user_share(request.user)
+        )
+        ttl_seconds = int(
+            getattr(
+                settings,
+                "DSHARE_PUBLIC_TTL_SECONDS" if is_public else "DSHARE_USER_TTL_SECONDS",
+                86400 if is_public else 86400 * 30,
+            )
+        )
+        _maybe_expire_share(share=share, ttl_seconds=ttl_seconds)
+
+        if share.file:
+            _delete_field_file(share.file)
+
+        with open(temp_path, "rb") as handle:
+            django_file = File(handle, name=session.filename)
+            share.file.save(session.filename, django_file, save=False)
+        share.text = None
+        share.save(update_fields=["file", "text", "updated_at"])
+        completed = True
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                logger.exception("Failed to remove temp upload file")
+        if completed:
+            _delete_upload_session_files(session)
+            session.delete()
+
+    return JsonResponse({"status": "ok"})
 
 
 @require_POST

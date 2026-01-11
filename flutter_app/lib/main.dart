@@ -6,9 +6,11 @@ import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-// import 'package:receive_sharing_intent/receive_sharing_intent.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'dshare_api.dart';
 import 'gesture_recognizer.dart';
@@ -18,8 +20,29 @@ const String kBaseUrl = String.fromEnvironment(
   defaultValue: 'https://dshare.me',
 );
 
-void main() {
+const int kChunkSize = 1024 * 1024;
+final FlutterLocalNotificationsPlugin kNotifications =
+    FlutterLocalNotificationsPlugin();
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const darwinSettings = DarwinInitializationSettings();
+  const initSettings =
+      InitializationSettings(android: androidSettings, iOS: darwinSettings);
+  await kNotifications.initialize(initSettings);
+  if (Platform.isAndroid) {
+    await kNotifications
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
+  }
+  if (Platform.isIOS) {
+    await kNotifications
+        .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin>()
+        ?.requestPermissions(alert: true, badge: false, sound: true);
+  }
   runApp(const DshareApp());
 }
 
@@ -77,9 +100,11 @@ class _HomePageState extends State<HomePage> {
   bool _isPublic = true;
   bool _ready = false;
   String _buffer = '';
+  double? _uploadProgress;
+  bool _uploadPaused = false;
 
   DshareApi? _api;
-  // StreamSubscription<List<SharedMediaFile>>? _mediaShareSub;
+  StreamSubscription<List<SharedMediaFile>>? _mediaShareSub;
 
   @override
   void initState() {
@@ -94,7 +119,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
-    // _mediaShareSub?.cancel();
+    _mediaShareSub?.cancel();
     _toastTimer?.cancel();
     _focusNode.dispose();
     super.dispose();
@@ -110,34 +135,35 @@ class _HomePageState extends State<HomePage> {
       _ready = true;
     });
     await _refreshMode();
-    // _initShareIntents();
+    _initShareIntents();
   }
 
   void _initShareIntents() {
-    /*
     if (!(Platform.isAndroid || Platform.isIOS)) {
       return;
     }
     try {
-        _mediaShareSub =
-            ReceiveSharingIntent.instance.getMediaStream().listen((files) {
-          if (files.isNotEmpty) {
-            _handleSharedFiles(files);
-          }
-        });
-        ReceiveSharingIntent.instance.getInitialMedia().then((files) {
-          if (files.isNotEmpty) {
-            _handleSharedFiles(files);
-            ReceiveSharingIntent.instance.reset();
-          }
-        });
+      _mediaShareSub =
+          ReceiveSharingIntent.instance.getMediaStream().listen((files) {
+        if (files.isNotEmpty) {
+          _handleSharedFiles(files);
+        }
+      });
+      ReceiveSharingIntent.instance.getInitialMedia().then((files) {
+        if (files.isNotEmpty) {
+          _handleSharedFiles(files);
+          ReceiveSharingIntent.instance.reset();
+        }
+      });
     } catch (_) {}
-    */
   }
 
-  /*
   Future<void> _handleSharedFiles(List<SharedMediaFile> files) async {
     if (_api == null || files.isEmpty) {
+      return;
+    }
+    if (_uploadProgress != null) {
+      _showToast('busy');
       return;
     }
     final first = files.first;
@@ -163,15 +189,8 @@ class _HomePageState extends State<HomePage> {
       _showToast('fail');
       return;
     }
-    _showToast('uploading');
-    try {
-      final res = await _api!.uploadFile(filePath);
-      _showToast(_isOk(res) ? 'ok' : 'fail');
-    } catch (_) {
-      _showToast('fail');
-    }
+    await _uploadFilePath(filePath, showUploadingToast: true);
   }
-  */
 
   void _showToast(String message, {int ms = 1800}) {
     _toastTimer?.cancel();
@@ -576,7 +595,190 @@ class _HomePageState extends State<HomePage> {
     _showToast('R/L/P/S/C/M/K/H, up/down, /register /login /logout /help', ms: 3500);
   }
 
+  Future<void> _notify(String message) async {
+    const androidDetails = AndroidNotificationDetails(
+      'dshare_uploads',
+      'Uploads',
+      channelDescription: 'DShare upload notifications',
+      importance: Importance.low,
+      priority: Priority.low,
+    );
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: DarwinNotificationDetails(),
+    );
+    try {
+      await kNotifications.show(0, 'DShare', message, details);
+    } catch (_) {}
+  }
+
+  Future<SharedPreferences> _prefs() {
+    return SharedPreferences.getInstance();
+  }
+
+  String _uploadCacheKey(String path, int size, int modifiedMs) {
+    final encodedPath = base64Url.encode(utf8.encode(path));
+    return 'dshare-upload:$encodedPath:$size:$modifiedMs';
+  }
+
+  Future<Map<String, dynamic>?> _loadUploadCache(String key) async {
+    final prefs = await _prefs();
+    final raw = prefs.getString(key);
+    if (raw == null || raw.isEmpty) {
+      return null;
+    }
+    try {
+      final parsed = jsonDecode(raw);
+      if (parsed is Map) {
+        return Map<String, dynamic>.from(parsed);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> _saveUploadCache(String key, Map<String, dynamic> data) async {
+    final prefs = await _prefs();
+    prefs.setString(key, jsonEncode(data));
+  }
+
+  Future<void> _clearUploadCache(String key) async {
+    final prefs = await _prefs();
+    prefs.remove(key);
+  }
+
+  int _chunkByteSize(int totalSize, int index, int chunkSize) {
+    final start = index * chunkSize;
+    if (start >= totalSize) {
+      return 0;
+    }
+    final remaining = totalSize - start;
+    return remaining < chunkSize ? remaining : chunkSize;
+  }
+
+  Future<void> _waitWhilePaused() async {
+    while (_uploadPaused && mounted) {
+      await Future.delayed(const Duration(milliseconds: 150));
+    }
+  }
+
+  Future<void> _uploadFilePath(
+    String path, {
+    bool showUploadingToast = false,
+  }) async {
+    if (_api == null) {
+      _showToast('loading');
+      return;
+    }
+    if (_uploadProgress != null) {
+      _showToast('busy');
+      return;
+    }
+    final file = File(path);
+    final stat = await file.stat();
+    if (stat.size <= 0) {
+      _showToast('fail');
+      return;
+    }
+    if (showUploadingToast) {
+      _showToast('uploading', ms: 1200);
+    }
+    final key = _uploadCacheKey(path, stat.size, stat.modified.millisecondsSinceEpoch);
+    final cached = await _loadUploadCache(key);
+    final startRes = await _api!.startUploadSession(
+      filename: p.basename(path),
+      size: stat.size,
+      chunkSize: kChunkSize,
+      contentType: '',
+      uploadId: cached != null ? cached['upload_id'] as String? : null,
+    );
+    final startData = _jsonMap(startRes.data);
+    if (startData == null || startData['status'] != 'ok') {
+      _showToast('fail');
+      return;
+    }
+    final uploadId = startData['upload_id']?.toString();
+    if (uploadId == null || uploadId.isEmpty) {
+      _showToast('fail');
+      return;
+    }
+    final chunkSize = (startData['chunk_size'] as int?) ?? kChunkSize;
+    await _saveUploadCache(key, {"upload_id": uploadId, "chunk_size": chunkSize});
+    final totalChunks = (startData['total_chunks'] as int?) ??
+        ((stat.size + chunkSize - 1) ~/ chunkSize);
+    final received = <int>{};
+    final receivedRaw = startData['received_chunks'];
+    if (receivedRaw is List) {
+      for (final item in receivedRaw) {
+        if (item is num) {
+          received.add(item.toInt());
+        }
+      }
+    }
+    int uploadedBytes = 0;
+    for (final idx in received) {
+      uploadedBytes += _chunkByteSize(stat.size, idx, chunkSize);
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _uploadProgress = uploadedBytes / stat.size;
+      _uploadPaused = false;
+    });
+    final raf = await file.open();
+    bool ok = false;
+    try {
+      for (int index = 0; index < totalChunks; index++) {
+        if (received.contains(index)) {
+          continue;
+        }
+        await _waitWhilePaused();
+        final length = _chunkByteSize(stat.size, index, chunkSize);
+        await raf.setPosition(index * chunkSize);
+        final bytes = await raf.read(length);
+        final res = await _api!.uploadChunk(
+          uploadId: uploadId,
+          index: index,
+          bytes: bytes,
+          filename: p.basename(path),
+        );
+        if (!_isOk(res)) {
+          throw Exception('chunk failed');
+        }
+        uploadedBytes += bytes.length;
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _uploadProgress = uploadedBytes / stat.size;
+        });
+      }
+      final completeRes = await _api!.completeUpload(uploadId);
+      ok = _isOk(completeRes);
+      _showToast(ok ? 'ok' : 'fail');
+      if (ok) {
+        await _clearUploadCache(key);
+        await _notify('Upload complete.');
+      }
+    } catch (_) {
+      _showToast('fail');
+    } finally {
+      await raf.close();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _uploadProgress = null;
+        _uploadPaused = false;
+      });
+    }
+  }
+
   Future<void> _actionUpload() async {
+    if (_uploadProgress != null) {
+      _showToast('busy');
+      return;
+    }
     final picked = await FilePicker.platform.pickFiles(withData: false);
     if (picked == null || picked.files.isEmpty) {
       _showToast('fail');
@@ -587,8 +789,7 @@ class _HomePageState extends State<HomePage> {
       _showToast('fail');
       return;
     }
-    final res = await _api!.uploadFile(path);
-    _showToast(_isOk(res) ? 'ok' : 'fail');
+    await _uploadFilePath(path);
   }
 
   Future<void> _actionDownload() async {
@@ -671,39 +872,23 @@ class _HomePageState extends State<HomePage> {
           child: Stack(
             children: [
               Positioned.fill(
-                child: CustomPaint(
-                  painter: StrokePainter(_stroke),
-                ),
-              ),
-              if (_isPublic)
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: Center(
-                      child: Text(
-                        'PUBLIC',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.06),
-                          fontSize: 72,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 6,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              Positioned.fill(
                 child: IgnorePointer(
                   child: Center(
                     child: Opacity(
-                      opacity: 0.18,
+                      opacity: 0.12,
                       child: Image.asset(
-                        'assets/dshare_icon.png',
-                        width: 140,
+                        'assets/dshare_logo_text.png',
+                        width: 260,
                         height: 140,
                         fit: BoxFit.contain,
                       ),
                     ),
                   ),
+                ),
+              ),
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: StrokePainter(_stroke),
                 ),
               ),
               SafeArea(
@@ -731,6 +916,74 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
               ),
+              if (_uploadProgress != null)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 48,
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${(_uploadProgress! * 100).round()}%',
+                          style: TextStyle(
+                            fontSize: 12,
+                            letterSpacing: 1.2,
+                            color: Colors.white.withOpacity(0.75),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Container(
+                          width: 160,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: FractionallySizedBox(
+                              widthFactor: (_uploadProgress ?? 0)
+                                  .clamp(0.0, 1.0)
+                                  .toDouble(),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        TextButton(
+                          onPressed: () {
+                            setState(() {
+                              _uploadPaused = !_uploadPaused;
+                            });
+                            _showToast(_uploadPaused ? 'paused' : 'resumed', ms: 900);
+                          },
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 4,
+                            ),
+                            foregroundColor: Colors.white.withOpacity(0.8),
+                            textStyle: const TextStyle(
+                              fontSize: 10,
+                              letterSpacing: 1.4,
+                            ),
+                            side: BorderSide(
+                              color: Colors.white.withOpacity(0.35),
+                            ),
+                          ),
+                          child: Text(_uploadPaused ? 'RESUME' : 'PAUSE'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               Align(
                 alignment: Alignment.bottomCenter,
                 child: Padding(

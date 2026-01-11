@@ -3,8 +3,8 @@
 <html class="dark">
   <head>
     <title>Home</title>
-    <link rel="icon" type="image/png" href="{% static 'dshare_icon.png' %}" />
-    <link rel="apple-touch-icon" href="{% static 'dshare_icon.png' %}" />
+    <link rel="icon" type="image/png" href="{% static 'dshare_icon_bg.png' %}" />
+    <link rel="apple-touch-icon" href="{% static 'dshare_icon_bg.png' %}" />
     <link
       href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
       rel="stylesheet"
@@ -12,21 +12,45 @@
   </head>
   <body class="bg-black text-white font-sans">
     <div class="min-h-screen flex items-center justify-center">
+      <div
+        class="pointer-events-none fixed inset-0 flex items-center justify-center select-none"
+        style="opacity: 0.12; z-index: 0"
+      >
+        <img
+          src="{% static 'dshare_logo_text.png' %}"
+          alt="DShare"
+          class="w-56 sm:w-64 md:w-72"
+        />
+      </div>
       <img
         src="{% static 'dshare_icon.png' %}"
         alt="DShare"
         class="pointer-events-none fixed top-4 left-4 w-8 h-8 opacity-70"
       />
       <div
-        id="mode-watermark"
-        class="hidden pointer-events-none fixed inset-0 flex items-center justify-center text-white text-6xl font-bold opacity-5 select-none"
-      >
-        PUBLIC
-      </div>
-      <div
         id="toast"
         class="hidden fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white text-black px-4 py-2 rounded opacity-90 text-sm select-none"
       ></div>
+      <div
+        id="upload-progress"
+        class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-xs tracking-widest text-white opacity-80"
+      >
+        <div id="upload-progress-label">0%</div>
+        <div class="w-40 h-1 rounded-full bg-white bg-opacity-10 overflow-hidden">
+          <div
+            id="upload-progress-bar"
+            class="h-1 bg-white"
+            style="width: 0%"
+          ></div>
+        </div>
+        <button
+          id="upload-toggle"
+          type="button"
+          class="hidden px-3 py-1 text-[10px] tracking-widest uppercase border border-white/30 text-white/80 hover:text-white"
+        >
+          Pause
+        </button>
+      </div>
       <div id="upload-section" class="hidden">
         <form
           id="upload-form"
@@ -73,6 +97,84 @@
         el.classList.remove("hidden");
         clearTimeout(el._t);
         el._t = setTimeout(() => el.classList.add("hidden"), ms);
+      }
+
+      const uploadProgressEl = document.getElementById("upload-progress");
+      const uploadProgressBar = document.getElementById("upload-progress-bar");
+      const uploadProgressLabel = document.getElementById(
+        "upload-progress-label"
+      );
+
+      function setUploadProgress(percent) {
+        const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+        uploadProgressLabel.textContent = `${clamped}%`;
+        uploadProgressBar.style.width = `${clamped}%`;
+        uploadProgressEl.classList.remove("hidden");
+      }
+
+      function clearUploadProgress() {
+        uploadProgressBar.style.width = "0%";
+        uploadProgressLabel.textContent = "0%";
+        uploadProgressEl.classList.add("hidden");
+      }
+
+      const CHUNK_SIZE = 1024 * 1024;
+      const uploadToggle = document.getElementById("upload-toggle");
+      let uploadPaused = false;
+      let uploadInProgress = false;
+
+      function updateUploadToggle() {
+        if (!uploadInProgress) {
+          uploadToggle.classList.add("hidden");
+          return;
+        }
+        uploadToggle.textContent = uploadPaused ? "Resume" : "Pause";
+        uploadToggle.classList.remove("hidden");
+      }
+
+      uploadToggle.addEventListener("click", () => {
+        if (!uploadInProgress) return;
+        uploadPaused = !uploadPaused;
+        updateUploadToggle();
+        toast(uploadPaused ? "paused" : "resumed", 900);
+      });
+
+      function waitWhilePaused() {
+        return new Promise((resolve) => {
+          const tick = () => {
+            if (!uploadPaused) {
+              resolve();
+              return;
+            }
+            setTimeout(tick, 150);
+          };
+          tick();
+        });
+      }
+
+      function fileUploadKey(file) {
+        return `dshare-upload:${file.name}:${file.size}:${file.lastModified}`;
+      }
+
+      function loadUploadSession(key) {
+        try {
+          const raw = localStorage.getItem(key);
+          return raw ? JSON.parse(raw) : null;
+        } catch (_) {
+          return null;
+        }
+      }
+
+      function saveUploadSession(key, session) {
+        try {
+          localStorage.setItem(key, JSON.stringify(session));
+        } catch (_) {}
+      }
+
+      function clearUploadSession(key) {
+        try {
+          localStorage.removeItem(key);
+        } catch (_) {}
       }
 
       function base64urlToUint8Array(base64url) {
@@ -178,15 +280,8 @@
 
       async function refreshMode() {
         try {
-          const res = await fetch("/api/auth/me/", { method: "GET" });
-          const data = await res.json();
-          const isPublic = !(data && data.authenticated);
-          document
-            .getElementById("mode-watermark")
-            .classList.toggle("hidden", !isPublic);
-        } catch (_) {
-          document.getElementById("mode-watermark").classList.remove("hidden");
-        }
+          await fetch("/api/auth/me/", { method: "GET" });
+        } catch (_) {}
       }
 
       function promptPassword(message) {
@@ -493,30 +588,127 @@
         }
       }
 
+      function chunkSizeForIndex(file, index, chunkSize) {
+        const start = index * chunkSize;
+        return Math.min(chunkSize, file.size - start);
+      }
+
+      async function startUploadSession(file, cached) {
+        const payload = {
+          filename: file.name,
+          size: file.size,
+          chunk_size: CHUNK_SIZE,
+          content_type: file.type || "",
+        };
+        if (cached && cached.upload_id) {
+          payload.upload_id = cached.upload_id;
+        }
+        const res = await postJSON("/api/upload/start/", payload);
+        const data = await res.json();
+        if (!res.ok || !data || data.status !== "ok") {
+          throw new Error("upload start failed");
+        }
+        return data;
+      }
+
+      async function uploadChunkedFile(file) {
+        if (!file || file.size <= 0) {
+          throw new Error("empty file");
+        }
+        uploadInProgress = true;
+        uploadPaused = false;
+        updateUploadToggle();
+        setUploadProgress(0);
+        if ("Notification" in window && Notification.permission === "default") {
+          Notification.requestPermission().catch(() => {});
+        }
+
+        const key = fileUploadKey(file);
+        const cached = loadUploadSession(key);
+        const session = await startUploadSession(file, cached);
+        saveUploadSession(key, {
+          upload_id: session.upload_id,
+          chunk_size: session.chunk_size,
+        });
+
+        const chunkSize = session.chunk_size || CHUNK_SIZE;
+        const totalChunks = session.total_chunks;
+        const received = new Set(session.received_chunks || []);
+        let uploadedBytes = 0;
+        for (const idx of received) {
+          if (typeof idx !== "number") continue;
+          uploadedBytes += chunkSizeForIndex(file, idx, chunkSize);
+        }
+        setUploadProgress((uploadedBytes / file.size) * 100);
+
+        for (let index = 0; index < totalChunks; index++) {
+          if (received.has(index)) {
+            continue;
+          }
+          await waitWhilePaused();
+          const start = index * chunkSize;
+          const chunk = file.slice(start, start + chunkSize);
+          const formData = new FormData();
+          formData.append("upload_id", session.upload_id);
+          formData.append("index", String(index));
+          formData.append("chunk", chunk, file.name);
+          const res = await fetch("/api/upload/chunk/", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+              "X-CSRFToken": getCsrfToken(),
+            },
+            body: formData,
+          });
+          if (!res.ok) {
+            throw new Error("chunk upload failed");
+          }
+          received.add(index);
+          uploadedBytes += chunk.size;
+          setUploadProgress((uploadedBytes / file.size) * 100);
+        }
+
+        const complete = await postJSON("/api/upload/complete/", {
+          upload_id: session.upload_id,
+        });
+        const completeData = await complete.json();
+        if (!complete.ok || !completeData || completeData.status !== "ok") {
+          throw new Error("upload complete failed");
+        }
+        clearUploadSession(key);
+        return true;
+      }
+
       document
         .getElementById("upload-form")
         .addEventListener("submit", function (e) {
           e.preventDefault();
-          const formData = new FormData(this);
-          formData.delete("csrfmiddlewaretoken");
-          fetch("/upload/", {
-            method: "POST",
-            credentials: "same-origin",
-            body: formData,
-            headers: {
-              "X-CSRFToken": getCsrfToken(),
-            },
-          })
-            .then(async (response) => {
-              let data = null;
-              try {
-                data = await response.json();
-              } catch (_) {}
-              toast(
-                response.ok && data && data.status === "ok" ? "ok" : "fail"
-              );
+          if (uploadInProgress) {
+            toast("busy");
+            return;
+          }
+          const fileInput = this.querySelector('input[type="file"]');
+          const file = fileInput && fileInput.files ? fileInput.files[0] : null;
+          if (!file) {
+            toast("fail");
+            return;
+          }
+          uploadChunkedFile(file)
+            .then(() => {
+              toast("ok");
+              if (
+                "Notification" in window &&
+                Notification.permission === "granted"
+              ) {
+                new Notification("DShare", { body: "Upload complete." });
+              }
             })
-            .catch(() => toast("fail"));
+            .catch(() => toast("fail"))
+            .finally(() => {
+              uploadInProgress = false;
+              updateUploadToggle();
+              clearUploadProgress();
+            });
         });
 
       refreshMode();

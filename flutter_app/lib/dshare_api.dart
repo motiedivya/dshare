@@ -102,7 +102,11 @@ class DshareApi {
     );
   }
 
-  Future<Response<dynamic>> uploadFile(String filePath) async {
+  Future<Response<dynamic>> uploadFile(
+    String filePath, {
+    ProgressCallback? onSendProgress,
+    CancelToken? cancelToken,
+  }) async {
     await ensureCsrf();
     final csrf = await _csrfToken();
     final fileName = p.basename(filePath);
@@ -112,12 +116,61 @@ class DshareApi {
     return _dio.post(
       "/upload/",
       data: formData,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
       options: Options(
         headers: _csrfHeaders(csrf),
         contentType: "multipart/form-data",
         responseType: ResponseType.json,
       ),
     );
+  }
+
+  Future<Response<dynamic>> startUploadSession({
+    required String filename,
+    required int size,
+    required int chunkSize,
+    String? contentType,
+    String? uploadId,
+  }) async {
+    final payload = {
+      "filename": filename,
+      "size": size,
+      "chunk_size": chunkSize,
+      "content_type": contentType ?? "",
+      if (uploadId != null && uploadId.isNotEmpty) "upload_id": uploadId,
+    };
+    return postJson("/api/upload/start/", payload);
+  }
+
+  Future<Response<dynamic>> uploadChunk({
+    required String uploadId,
+    required int index,
+    required List<int> bytes,
+    required String filename,
+  }) async {
+    await ensureCsrf();
+    final csrf = await _csrfToken();
+    final formData = FormData.fromMap(
+      {
+        "upload_id": uploadId,
+        "index": index.toString(),
+        "chunk": MultipartFile.fromBytes(bytes, filename: filename),
+      },
+    );
+    return _dio.post(
+      "/api/upload/chunk/",
+      data: formData,
+      options: Options(
+        headers: _csrfHeaders(csrf),
+        contentType: "multipart/form-data",
+        responseType: ResponseType.json,
+      ),
+    );
+  }
+
+  Future<Response<dynamic>> completeUpload(String uploadId) async {
+    return postJson("/api/upload/complete/", {"upload_id": uploadId});
   }
 
   Future<Response<dynamic>> download() async {
