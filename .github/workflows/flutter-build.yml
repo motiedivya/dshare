@@ -23,9 +23,13 @@ jobs:
         include:
           - os: ubuntu-latest
             target: android
-            build_cmd: flutter build apk --release --build-number ${{ github.run_number }}
-            artifact_name: android-apk
-            artifact_path: flutter_app/build/app/outputs/flutter-apk/app-release.apk
+            build_cmd: |
+              flutter build appbundle --release --build-number ${{ github.run_number }}
+              flutter build apk --release --build-number ${{ github.run_number }}
+            artifact_name: android-artifacts
+            artifact_path: |
+              flutter_app/build/app/outputs/bundle/release/app-release.aab
+              flutter_app/build/app/outputs/flutter-apk/app-release.apk
           - os: windows-latest
             target: windows
             build_cmd: flutter build windows --release --build-number ${{ github.run_number }}
@@ -41,12 +45,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Java
+        if: matrix.target == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "11"
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.35.7"
           channel: "stable"
           cache: true
+
+      - name: Configure Android signing
+        if: matrix.target == 'android' && secrets.ANDROID_KEYSTORE_BASE64 != ''
+        shell: bash
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > flutter_app/android/upload-keystore.jks
+          cat > flutter_app/android/key.properties <<EOF
+          storeFile=upload-keystore.jks
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          EOF
 
       - name: Install dependencies
         run: flutter pub get
