@@ -68,7 +68,7 @@ jobs:
         if: ${{ matrix.target == 'android' && env.ANDROID_KEYSTORE_BASE64 != '' }}
         shell: bash
         run: |
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > flutter_app/android/upload-keystore.jks
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > flutter_app/android/app/upload-keystore.jks
           cat > flutter_app/android/key.properties <<EOF
           storeFile=upload-keystore.jks
           storePassword=$ANDROID_KEYSTORE_PASSWORD
