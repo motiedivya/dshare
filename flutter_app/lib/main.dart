@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -94,6 +96,7 @@ class _HomePageState extends State<HomePage> {
   final FocusNode _focusNode = FocusNode();
   final OneDollarRecognizer _recognizer = buildDefaultRecognizer();
   final List<Offset> _stroke = [];
+  static const double _gestureScoreThreshold = 0.72;
   Timer? _toastTimer;
   String _toastMessage = '';
   bool _toastVisible = false;
@@ -337,16 +340,110 @@ class _HomePageState extends State<HomePage> {
     return null;
   }
 
+  DshareAction? _verticalSwipeAction(List<Offset> stroke) {
+    if (stroke.length < 2) {
+      return null;
+    }
+    final size = MediaQuery.of(context).size;
+    final minDy = math.max(50.0, size.height * 0.06);
+    final maxDx = math.max(220.0, size.width * 0.65);
+    double minX = stroke.first.dx;
+    double maxX = stroke.first.dx;
+    double minY = stroke.first.dy;
+    double maxY = stroke.first.dy;
+    double sumAbsDx = 0.0;
+    double sumAbsDy = 0.0;
+    int posDySegments = 0;
+    int negDySegments = 0;
+    for (int i = 1; i < stroke.length; i++) {
+      final prev = stroke[i - 1];
+      final curr = stroke[i];
+      final dx = curr.dx - prev.dx;
+      final dy = curr.dy - prev.dy;
+      sumAbsDx += dx.abs();
+      sumAbsDy += dy.abs();
+      if (dy > 2.0) {
+        posDySegments += 1;
+      } else if (dy < -2.0) {
+        negDySegments += 1;
+      }
+      if (curr.dx < minX) minX = curr.dx;
+      if (curr.dx > maxX) maxX = curr.dx;
+      if (curr.dy < minY) minY = curr.dy;
+      if (curr.dy > maxY) maxY = curr.dy;
+    }
+    final dxRange = maxX - minX;
+    final dyRange = maxY - minY;
+    if (dyRange < minDy) {
+      return null;
+    }
+    if (dxRange > maxDx) {
+      return null;
+    }
+    if (sumAbsDy <= 0) {
+      return null;
+    }
+    final dominance =
+        sumAbsDx == 0 ? double.infinity : (sumAbsDy / sumAbsDx);
+    if (dominance < 1.05) {
+      return null;
+    }
+    final totalDy = posDySegments + negDySegments;
+    if (totalDy > 0) {
+      final dominant =
+          math.max(posDySegments, negDySegments) / totalDy;
+      if (dominant < 0.6) {
+        return null;
+      }
+    }
+    final netDy = stroke.last.dy - stroke.first.dy;
+    if (netDy.abs() < dyRange * 0.35) {
+      return null;
+    }
+    return netDy < 0 ? DshareAction.upload : DshareAction.download;
+  }
+
+  DshareAction? _verticalSwipeFallback(List<Offset> stroke) {
+    if (stroke.length < 2) {
+      return null;
+    }
+    final size = MediaQuery.of(context).size;
+    final minDy = math.max(40.0, size.height * 0.05);
+    final netDy = stroke.last.dy - stroke.first.dy;
+    final netDx = stroke.last.dx - stroke.first.dx;
+    if (netDy.abs() < minDy) {
+      return null;
+    }
+    if (netDy.abs() < netDx.abs() * 1.1) {
+      return null;
+    }
+    return netDy < 0 ? DshareAction.upload : DshareAction.download;
+  }
+
   void _handleStrokeEnd() {
-    if (_stroke.length < 10) {
+    if (_stroke.length < 2) {
       _stroke.clear();
       setState(() {});
       return;
     }
-    final result = _recognizer.recognize(List.of(_stroke));
+    final stroke = List<Offset>.from(_stroke);
     _stroke.clear();
     setState(() {});
-    if (result == null || result.score < 0.65) {
+    final verticalAction = _verticalSwipeAction(stroke);
+    if (verticalAction != null) {
+      _runAction(verticalAction);
+      return;
+    }
+    final fallbackAction = _verticalSwipeFallback(stroke);
+    if (fallbackAction != null) {
+      _runAction(fallbackAction);
+      return;
+    }
+    if (stroke.length < 10) {
+      return;
+    }
+    final result = _recognizer.recognize(stroke);
+    if (result == null || result.score < _gestureScoreThreshold) {
       _showToast('fail');
       return;
     }
@@ -376,9 +473,11 @@ class _HomePageState extends State<HomePage> {
         _runAction(DshareAction.help);
         break;
       case 'UP':
+      case 'ARROW_UP':
         _runAction(DshareAction.upload);
         break;
       case 'DOWN':
+      case 'ARROW_DOWN':
         _runAction(DshareAction.download);
         break;
       default:
@@ -857,8 +956,13 @@ class _HomePageState extends State<HomePage> {
         onKey: _handleKey,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: () => _focusNode.requestFocus(),
+          dragStartBehavior: DragStartBehavior.down,
+          onTap: () {
+            _focusNode.requestFocus();
+            _actionHelp();
+          },
           onPanStart: (details) {
+            _focusNode.requestFocus();
             _stroke
               ..clear()
               ..add(details.localPosition);
@@ -869,6 +973,10 @@ class _HomePageState extends State<HomePage> {
             setState(() {});
           },
           onPanEnd: (_) => _handleStrokeEnd(),
+          onPanCancel: () {
+            _stroke.clear();
+            setState(() {});
+          },
           child: Stack(
             children: [
               Positioned.fill(
@@ -888,7 +996,7 @@ class _HomePageState extends State<HomePage> {
               ),
               Positioned.fill(
                 child: CustomPaint(
-                  painter: StrokePainter(_stroke),
+                  painter: StrokePainter(List<Offset>.of(_stroke)),
                 ),
               ),
               SafeArea(

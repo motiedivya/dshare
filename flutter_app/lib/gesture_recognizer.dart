@@ -31,8 +31,13 @@ class OneDollarRecognizer {
     
     // UP: Line up
     _addTemplate('UP', [Point(0, 100), Point(0, 0)]);
+    // ARROW_UP: Inverted V
+    _addTemplate('ARROW_UP', [Point(0, 100), Point(50, 0), Point(100, 100)]);
+
     // DOWN: Line down
     _addTemplate('DOWN', [Point(0, 0), Point(0, 100)]);
+    // ARROW_DOWN: V
+    _addTemplate('ARROW_DOWN', [Point(0, 0), Point(50, 100), Point(100, 0)]);
     
     // L: Down then Right
     _addTemplate('L', [Point(0, 0), Point(0, 100), Point(50, 100)]);
@@ -152,10 +157,12 @@ class OneDollarRecognizer {
 
   static List<Point> _scaleToSquare(List<Point> points, double size) {
     _Box b = _boundingBox(points);
+    final safeWidth = b.width == 0 ? 1.0 : b.width;
+    final safeHeight = b.height == 0 ? 1.0 : b.height;
     List<Point> newPoints = [];
     for (final p in points) {
-        double qx = p.x * (size / b.width);
-        double qy = p.y * (size / b.height);
+        double qx = p.x * (size / safeWidth);
+        double qy = p.y * (size / safeHeight);
         newPoints.add(Point(qx, qy));
     }
     return newPoints;

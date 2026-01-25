@@ -1,16 +1,20 @@
 {% load static %}
-<!DOCTYPE html>
+<!doctype html>
 <html class="dark">
   <head>
     <title>Home</title>
-    <link rel="icon" type="image/png" href="{% static 'dshare_icon_bg.png' %}" />
+    <link
+      rel="icon"
+      type="image/png"
+      href="{% static 'dshare_icon_bg.png' %}"
+    />
     <link rel="apple-touch-icon" href="{% static 'dshare_icon_bg.png' %}" />
     <link
       href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
       rel="stylesheet"
     />
   </head>
-  <body class="bg-black text-white font-sans">
+  <body class="bg-black text-white font-sans" style="touch-action: none">
     <div class="min-h-screen flex items-center justify-center">
       <div
         class="pointer-events-none fixed inset-0 flex items-center justify-center select-none"
@@ -36,7 +40,9 @@
         class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-xs tracking-widest text-white opacity-80"
       >
         <div id="upload-progress-label">0%</div>
-        <div class="w-40 h-1 rounded-full bg-white bg-opacity-10 overflow-hidden">
+        <div
+          class="w-40 h-1 rounded-full bg-white bg-opacity-10 overflow-hidden"
+        >
           <div
             id="upload-progress-bar"
             class="h-1 bg-white"
@@ -69,6 +75,7 @@
         </button>
       </div>
     </div>
+    <canvas id="gesture-canvas" class="fixed inset-0 w-full h-full pointer-events-none" style="z-index: 100;"></canvas>
     <script>
       let keyword = "";
       const specialKeywordUpload = "divya";
@@ -86,7 +93,7 @@
         const cookie = getCookie("csrftoken");
         if (cookie) return cookie;
         const input = document.querySelector(
-          'input[name="csrfmiddlewaretoken"]'
+          'input[name="csrfmiddlewaretoken"]',
         );
         return input ? input.value : "";
       }
@@ -102,7 +109,7 @@
       const uploadProgressEl = document.getElementById("upload-progress");
       const uploadProgressBar = document.getElementById("upload-progress-bar");
       const uploadProgressLabel = document.getElementById(
-        "upload-progress-label"
+        "upload-progress-label",
       );
 
       function setUploadProgress(percent) {
@@ -247,12 +254,12 @@
         };
         if (response.attestationObject) {
           obj.response.attestationObject = bufferToBase64url(
-            response.attestationObject
+            response.attestationObject,
           );
         }
         if (response.authenticatorData) {
           obj.response.authenticatorData = bufferToBase64url(
-            response.authenticatorData
+            response.authenticatorData,
           );
         }
         if (response.signature) {
@@ -368,7 +375,7 @@
           toast("fail");
           return;
         }
-        const pin = await promptPassword("Create pin (optional)") || "";
+        const pin = (await promptPassword("Create pin (optional)")) || "";
         const res = await postJSON("/api/auth/register/", {
           email,
           password,
@@ -397,7 +404,7 @@
           const payload = credentialToJSON(assertion);
           const complete = await postJSON(
             "/api/webauthn/auth/complete/",
-            payload
+            payload,
           );
           if (!complete.ok) return false;
           const out = await complete.json();
@@ -458,7 +465,7 @@
           const payload = credentialToJSON(cred);
           const complete = await postJSON(
             "/api/webauthn/register/complete/",
-            payload
+            payload,
           );
           toast(complete.ok ? "ok" : "fail");
         } catch (_) {
@@ -492,8 +499,8 @@
 
       async function commandHelp() {
         toast(
-          "/register /login /logout /passkey /status /copy /paste /clear",
-          3500
+          "draw R/L/P/S/C/M/K/H, up/down | type /register /login /logout /passkey /status /me /copy /paste /clear",
+          3500,
         );
       }
 
@@ -507,12 +514,28 @@
         }
       }
 
+      async function commandMe() {
+        try {
+          const res = await fetch("/api/auth/me/", { method: "GET" });
+          const data = await res.json();
+          if (!data || !data.authenticated) {
+            toast("me: public");
+            return;
+          }
+          const summary = `me: verified=${!!data.email_verified} passkey=${!!data.has_passkey} pw=${!!data.has_password} pin=${!!data.has_pin}`;
+          toast(summary, 3000);
+        } catch (_) {
+          toast("fail");
+        }
+      }
+
       async function handleCommand(cmd) {
         if (cmd === "register") return commandRegister();
         if (cmd === "login") return commandLogin();
         if (cmd === "logout") return commandLogout();
         if (cmd === "passkey") return commandPasskey();
-        if (cmd === "status" || cmd === "me") return commandStatus();
+        if (cmd === "status") return commandStatus();
+        if (cmd === "me") return commandMe();
         if (cmd === "copy") return commandCopy();
         if (cmd === "paste") return pasteText();
         if (cmd === "clear") return commandClear();
@@ -723,6 +746,433 @@
           ? `${window.location.pathname}?${q}`
           : window.location.pathname;
         window.history.replaceState({}, "", clean);
+      }
+
+      // --- Gesture Recognition (Ported from Flutter) ---
+      class Point { constructor(x, y) { this.x = x; this.y = y; } }
+      class Recognizer {
+        constructor() {
+          this.points = [];
+          this.templates = [
+            { name: 'UP', points: [new Point(0, 100), new Point(0, 0)] },
+            { name: 'ARROW_UP', points: [new Point(0, 100), new Point(50, 0), new Point(100, 100)] },
+            { name: 'DOWN', points: [new Point(0, 0), new Point(0, 100)] },
+            { name: 'ARROW_DOWN', points: [new Point(0, 0), new Point(50, 100), new Point(100, 0)] },
+            { name: 'L', points: [new Point(0, 0), new Point(0, 100), new Point(50, 100)] },
+            { name: 'R', points: [new Point(0, 100), new Point(0, 0), new Point(50, 0), new Point(50, 50), new Point(0, 50), new Point(50, 100)] },
+            { name: 'P', points: [new Point(0, 100), new Point(0, 0), new Point(50, 0), new Point(50, 50), new Point(0, 50)] },
+            { name: 'C', points: [new Point(100, 0), new Point(0, 50), new Point(100, 100)] },
+            { name: 'S', points: [new Point(100, 0), new Point(0, 30), new Point(100, 70), new Point(0, 100)] },
+            { name: 'M', points: [new Point(0, 100), new Point(0, 0), new Point(50, 50), new Point(100, 0), new Point(100, 100)] },
+            { name: 'H', points: [new Point(0, 0), new Point(0, 100), new Point(0, 50), new Point(100, 50), new Point(100, 0), new Point(100, 100)] },
+            { name: 'K', points: [new Point(0, 0), new Point(0, 100), new Point(0, 50), new Point(50, 0), new Point(0, 50), new Point(50, 100)] },
+          ];
+          // Pre-process templates
+          const numPoints = 64;
+          const squareSize = 250.0;
+          this.templates = this.templates.map(t => ({
+             name: t.name,
+             points: this.normalize(t.points, numPoints, squareSize)
+          }));
+          this.numPoints = numPoints;
+          this.squareSize = squareSize;
+        }
+
+        recognize(points) {
+          if (points.length < 10) return null;
+          points = this.normalize(points, this.numPoints, this.squareSize);
+          let bestDist = Infinity;
+          let bestName = '';
+          for (const t of this.templates) {
+            const d = this.distanceAtBestAngle(points, t.points);
+            if (d < bestDist) {
+               bestDist = d;
+               bestName = t.name;
+            }
+          }
+          const score = 1.0 - (bestDist / (0.5 * Math.sqrt(this.squareSize*this.squareSize + this.squareSize*this.squareSize)));
+          return { name: bestName, score: score };
+        }
+
+        normalize(points, n, size) {
+           return this.translateToOrigin(this.scaleToSquare(this.rotateToZero(this.resample(points, n)), size));
+        }
+
+        resample(points, n) {
+           let I = this.pathLength(points) / (n - 1);
+           let D = 0.0;
+           let newPoints = [points[0]];
+           for (let i = 1; i < points.length; i++) {
+               let d = this.distance(points[i-1], points[i]);
+               if (D + d >= I) {
+                   let qx = points[i-1].x + ((I - D) / d) * (points[i].x - points[i-1].x);
+                   let qy = points[i-1].y + ((I - D) / d) * (points[i].y - points[i-1].y);
+                   let q = new Point(qx, qy);
+                   newPoints.push(q);
+                   points.splice(i, 0, q);
+                   D = 0.0;
+               } else { D += d; }
+           }
+           if (newPoints.length === n - 1) newPoints.push(points[points.length - 1]);
+           return newPoints;
+        }
+        
+        rotateToZero(points) {
+            const c = this.centroid(points);
+            const theta = Math.atan2(c.y - points[0].y, c.x - points[0].x);
+            return this.rotateBy(points, -theta);
+        }
+        
+        rotateBy(points, rads) {
+            const c = this.centroid(points);
+            const cos = Math.cos(rads);
+            const sin = Math.sin(rads);
+            return points.map(p => new Point(
+                (p.x - c.x) * cos - (p.y - c.y) * sin + c.x,
+                (p.x - c.x) * sin + (p.y - c.y) * cos + c.y
+            ));
+        }
+
+        scaleToSquare(points, size) {
+            const b = this.boundingBox(points);
+            const w = b.w === 0 ? 1 : b.w;
+            const h = b.h === 0 ? 1 : b.h;
+            return points.map(p => new Point(p.x * (size / w), p.y * (size / h)));
+        }
+
+        translateToOrigin(points) {
+            const c = this.centroid(points);
+            return points.map(p => new Point(p.x - c.x, p.y - c.y));
+        }
+        
+        distanceAtBestAngle(points, T) {
+            let a = -45.0 * (Math.PI / 180.0);
+            let b = 45.0 * (Math.PI / 180.0);
+            const phi = 0.618033988749895;
+            let x1 = phi * a + (1.0 - phi) * b;
+            let f1 = this.distanceAtAngle(points, T, x1);
+            let x2 = (1.0 - phi) * a + phi * b;
+            let f2 = this.distanceAtAngle(points, T, x2);
+            while (Math.abs(b - a) > 2.0 * (Math.PI / 180.0)) {
+                if (f1 < f2) {
+                    b = x2; x2 = x1; f2 = f1;
+                    x1 = phi * a + (1.0 - phi) * b;
+                    f1 = this.distanceAtAngle(points, T, x1);
+                } else {
+                    a = x1; x1 = x2; f1 = f2;
+                    x2 = (1.0 - phi) * a + phi * b;
+                    f2 = this.distanceAtAngle(points, T, x2);
+                }
+            }
+            return Math.min(f1, f2);
+        }
+
+        distanceAtAngle(points, T, rads) {
+            let newPoints = this.rotateBy(points, rads);
+            let d = 0.0;
+            for (let i = 0; i < points.length; i++) d += this.distance(newPoints[i], T[i]);
+            return d / points.length;
+        }
+
+        pathLength(points) {
+            let d = 0.0;
+            for (let i = 1; i < points.length; i++) d += this.distance(points[i-1], points[i]);
+            return d;
+        }
+
+        distance(p1, p2) {
+            const dx = p1.x - p2.x;
+            const dy = p1.y - p2.y;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        centroid(points) {
+            let x = 0, y = 0;
+            for (const p of points) { x += p.x; y += p.y; }
+            return new Point(x / points.length, y / points.length);
+        }
+
+        boundingBox(points) {
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (const p of points) {
+                if (p.x < minX) minX = p.x;
+                if (p.x > maxX) maxX = p.x;
+                if (p.y < minY) minY = p.y;
+                if (p.y > maxY) maxY = p.y;
+            }
+            return { w: maxX - minX, h: maxY - minY };
+        }
+      }
+
+      // --- Interaction ---
+      const recognizer = new Recognizer();
+      let stroke = [];
+      const canvas = document.getElementById('gesture-canvas');
+      const ctx = canvas.getContext('2d');
+      let isDrawing = false;
+
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+      window.addEventListener('resize', resizeCanvas);
+      resizeCanvas();
+
+      function drawStroke() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (stroke.length < 2) return;
+        ctx.beginPath();
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.moveTo(stroke[0].x, stroke[0].y);
+        for (let i = 1; i < stroke.length; i++) ctx.lineTo(stroke[i].x, stroke[i].y);
+        ctx.stroke();
+      }
+
+      const DRAW_THRESHOLD = 6;
+      const GESTURE_SCORE_THRESHOLD = 0.72;
+      let activePointerId = null;
+      let activePointerTarget = null;
+      let strokeMoved = false;
+
+      function isInteractiveTarget(target) {
+        if (!target || !target.closest) return false;
+        return !!target.closest("button, input, textarea, select, a, label");
+      }
+
+      function beginStroke(x, y) {
+        stroke = [new Point(x, y)];
+        isDrawing = true;
+        strokeMoved = false;
+      }
+
+      function extendStroke(x, y) {
+        if (!isDrawing) return;
+        stroke.push(new Point(x, y));
+        if (!strokeMoved) {
+          const dx = x - stroke[0].x;
+          const dy = y - stroke[0].y;
+          if (Math.hypot(dx, dy) > DRAW_THRESHOLD) {
+            strokeMoved = true;
+          }
+        }
+        requestAnimationFrame(drawStroke);
+      }
+
+      function verticalSwipeDirection(points) {
+        if (!points || points.length < 2) return null;
+        const minDy = Math.max(50, window.innerHeight * 0.06);
+        const maxDx = Math.max(220, window.innerWidth * 0.65);
+        let minX = points[0].x;
+        let maxX = points[0].x;
+        let minY = points[0].y;
+        let maxY = points[0].y;
+        let sumAbsDx = 0;
+        let sumAbsDy = 0;
+        let posDySegments = 0;
+        let negDySegments = 0;
+        for (let i = 1; i < points.length; i++) {
+          const prev = points[i - 1];
+          const curr = points[i];
+          const dx = curr.x - prev.x;
+          const dy = curr.y - prev.y;
+          sumAbsDx += Math.abs(dx);
+          sumAbsDy += Math.abs(dy);
+          if (dy > 2) {
+            posDySegments += 1;
+          } else if (dy < -2) {
+            negDySegments += 1;
+          }
+          if (curr.x < minX) minX = curr.x;
+          if (curr.x > maxX) maxX = curr.x;
+          if (curr.y < minY) minY = curr.y;
+          if (curr.y > maxY) maxY = curr.y;
+        }
+        const dxRange = maxX - minX;
+        const dyRange = maxY - minY;
+        if (dyRange < minDy) return null;
+        if (dxRange > maxDx) return null;
+        if (sumAbsDy <= 0) return null;
+        const dominance = sumAbsDx === 0 ? Infinity : (sumAbsDy / sumAbsDx);
+        if (dominance < 1.05) return null;
+        const totalDy = posDySegments + negDySegments;
+        if (totalDy > 0) {
+          const dominant = Math.max(posDySegments, negDySegments) / totalDy;
+          if (dominant < 0.6) return null;
+        }
+        const netDy = points[points.length - 1].y - points[0].y;
+        if (Math.abs(netDy) < dyRange * 0.35) return null;
+        return netDy < 0 ? "UP" : "DOWN";
+      }
+
+      function verticalSwipeFallback(points) {
+        if (!points || points.length < 2) return null;
+        const minDy = Math.max(40, window.innerHeight * 0.05);
+        const netDy = points[points.length - 1].y - points[0].y;
+        const netDx = points[points.length - 1].x - points[0].x;
+        if (Math.abs(netDy) < minDy) return null;
+        if (Math.abs(netDy) < Math.abs(netDx) * 1.1) return null;
+        return netDy < 0 ? "UP" : "DOWN";
+      }
+
+      function finishStroke() {
+        if (!isDrawing) return;
+        isDrawing = false;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const vertical = verticalSwipeDirection(stroke);
+        if (vertical === "UP") {
+          document.getElementById("upload-section").classList.remove("hidden");
+          keyword = "";
+          stroke = [];
+          return;
+        }
+        if (vertical === "DOWN") {
+          window.location.href = "/download/";
+          stroke = [];
+          return;
+        }
+
+        const fallback = verticalSwipeFallback(stroke);
+        if (fallback === "UP") {
+          document.getElementById("upload-section").classList.remove("hidden");
+          keyword = "";
+          stroke = [];
+          return;
+        }
+        if (fallback === "DOWN") {
+          window.location.href = "/download/";
+          stroke = [];
+          return;
+        }
+
+        if (stroke.length < 10) {
+          stroke = [];
+          return;
+        }
+
+        const result = recognizer.recognize(stroke);
+        stroke = [];
+
+        if (result && result.score > GESTURE_SCORE_THRESHOLD) {
+          if (result.name === 'UP' || result.name === 'ARROW_UP') {
+            document.getElementById("upload-section").classList.remove("hidden");
+            keyword = "";
+          } else if (result.name === 'DOWN' || result.name === 'ARROW_DOWN') {
+            window.location.href = "/download/";
+          } else if (result.name === 'R') {
+            commandRegister();
+          } else if (result.name === 'L') {
+            commandLogin();
+          } else if (result.name === 'P') {
+            pasteText();
+          } else if (result.name === 'S') {
+            commandStatus();
+          } else if (result.name === 'C') {
+            commandCopy();
+          } else if (result.name === 'M') {
+            commandMe();
+          } else if (result.name === 'K') {
+            commandPasskey();
+          } else if (result.name === 'H') {
+            commandHelp();
+          } else {
+            toast("fail");
+          }
+        } else {
+          toast("fail");
+        }
+      }
+
+      function cancelStroke() {
+        if (!isDrawing) return;
+        isDrawing = false;
+        stroke = [];
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+
+      function onPointerDown(e) {
+        if (activePointerId !== null) return;
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        if (isInteractiveTarget(e.target)) return;
+        activePointerId = e.pointerId;
+        activePointerTarget = e.target;
+        if (activePointerTarget && activePointerTarget.setPointerCapture) {
+          activePointerTarget.setPointerCapture(e.pointerId);
+        }
+        beginStroke(e.clientX, e.clientY);
+      }
+
+      function onPointerMove(e) {
+        if (!isDrawing || e.pointerId !== activePointerId) return;
+        extendStroke(e.clientX, e.clientY);
+        if (strokeMoved) e.preventDefault();
+      }
+
+      function clearPointerCapture() {
+        if (
+          activePointerTarget &&
+          activePointerTarget.releasePointerCapture &&
+          activePointerId !== null
+        ) {
+          try {
+            activePointerTarget.releasePointerCapture(activePointerId);
+          } catch (_) {}
+        }
+        activePointerId = null;
+        activePointerTarget = null;
+        strokeMoved = false;
+      }
+
+      function onPointerUp(e) {
+        if (e.pointerId !== activePointerId) return;
+        finishStroke();
+        clearPointerCapture();
+      }
+
+      function onPointerCancel(e) {
+        if (e.pointerId !== activePointerId) return;
+        cancelStroke();
+        clearPointerCapture();
+      }
+
+      function onTouchStart(e) {
+        if (e.touches.length > 1) return;
+        if (isInteractiveTarget(e.target)) return;
+        beginStroke(e.touches[0].clientX, e.touches[0].clientY);
+      }
+
+      function onTouchMove(e) {
+        if (!isDrawing) return;
+        extendStroke(e.touches[0].clientX, e.touches[0].clientY);
+        if (strokeMoved) e.preventDefault();
+      }
+
+      function onTouchEnd() {
+        finishStroke();
+      }
+
+      function onTouchCancel() {
+        cancelStroke();
+      }
+
+      // Tap handler for help (if not clicking something else)
+      document.addEventListener('click', (e) => {
+        if (isInteractiveTarget(e.target)) return;
+        commandHelp();
+      });
+
+      if ("PointerEvent" in window) {
+        document.addEventListener('pointerdown', onPointerDown, { passive: false });
+        document.addEventListener('pointermove', onPointerMove, { passive: false });
+        document.addEventListener('pointerup', onPointerUp, { passive: false });
+        document.addEventListener('pointercancel', onPointerCancel, { passive: false });
+      } else {
+        document.addEventListener('touchstart', onTouchStart, { passive: false });
+        document.addEventListener('touchmove', onTouchMove, { passive: false });
+        document.addEventListener('touchend', onTouchEnd, { passive: false });
+        document.addEventListener('touchcancel', onTouchCancel, { passive: false });
       }
     </script>
   </body>
