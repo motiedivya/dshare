@@ -25,6 +25,12 @@ Public mode is world-writable; read `Security`.
 
 Optional: type `/passkey` once to add a passkey. After that, `/login` will prefer passkeys automatically.
 
+## Mobile gestures
+
+- Tap the logo (top-left) or long-press anywhere → Actions (login/logout/etc.)
+- Swipe ↑ upload, ↓ download, ← copy latest text, → paste clipboard text
+- Type `/docs` to open docs: https://docs.dshare.me
+
 ## How DShare stores data
 
 DShare is designed around “one latest thing”:
@@ -35,6 +41,8 @@ DShare is designed around “one latest thing”:
 There is no built-in history UI by design.
 
 ## Where to go next
+
+- Docs: https://docs.dshare.me
 
 - `Commands` — full command reference
 - `Security` — threat model and public mode risks

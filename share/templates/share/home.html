@@ -190,6 +190,12 @@
                 <span class="text-xs tracking-widest text-white text-opacity-50">/clear</span>
               </div>
             </button>
+            <button data-action="docs" type="button" class="w-full rounded border border-white border-opacity-20 px-3 py-2 text-left hover:bg-white hover:bg-opacity-5">
+              <div class="flex items-center justify-between gap-4">
+                <span>Docs</span>
+                <span class="text-xs tracking-widest text-white text-opacity-50">docs.dshare.me</span>
+              </div>
+            </button>
             <button data-action="help" type="button" class="w-full rounded border border-white border-opacity-20 px-3 py-2 text-left hover:bg-white hover:bg-opacity-5">
               <div class="flex items-center justify-between gap-4">
                 <span>Help</span>
@@ -245,7 +251,11 @@
             <span class="rounded border border-white border-opacity-10 px-2 py-1 text-white text-opacity-70 font-mono">/copy</span>
             <span class="rounded border border-white border-opacity-10 px-2 py-1 text-white text-opacity-70 font-mono">/paste</span>
             <span class="rounded border border-white border-opacity-10 px-2 py-1 text-white text-opacity-70 font-mono">/clear</span>
+            <span class="rounded border border-white border-opacity-10 px-2 py-1 text-white text-opacity-70 font-mono">/docs</span>
             <span class="rounded border border-white border-opacity-10 px-2 py-1 text-white text-opacity-70 font-mono">/help</span>
+          </div>
+          <div class="mt-4 text-xs tracking-wide text-white text-opacity-60">
+            Docs: <a href="https://docs.dshare.me" target="_blank" rel="noopener noreferrer" class="underline text-white text-opacity-80 hover:text-opacity-100">docs.dshare.me</a>
           </div>
         </div>
       </div>
@@ -268,7 +278,7 @@
         const cookie = getCookie("csrftoken");
         if (cookie) return cookie;
         const input = document.querySelector(
-          'input[name="csrfmiddlewaretoken"]',
+          'input[name="csrfmiddlewaretoken"]'
         );
         return input ? input.value : "";
       }
@@ -301,7 +311,7 @@
       const uploadProgressEl = document.getElementById("upload-progress");
       const uploadProgressBar = document.getElementById("upload-progress-bar");
       const uploadProgressLabel = document.getElementById(
-        "upload-progress-label",
+        "upload-progress-label"
       );
 
       function setUploadProgress(percent) {
@@ -322,9 +332,10 @@
       const uploadToggle = document.getElementById("upload-toggle");
       let uploadPaused = false;
       let uploadInProgress = false;
+      let uploadCanPause = false;
 
       function updateUploadToggle() {
-        if (!uploadInProgress) {
+        if (!uploadInProgress || !uploadCanPause) {
           uploadToggle.classList.add("hidden");
           return;
         }
@@ -333,11 +344,30 @@
       }
 
       uploadToggle.addEventListener("click", () => {
-        if (!uploadInProgress) return;
+        if (!uploadInProgress || !uploadCanPause) return;
         uploadPaused = !uploadPaused;
         updateUploadToggle();
         toast(uploadPaused ? "paused" : "resumed", 900);
       });
+
+      function beginUploadUI({ canPause = true } = {}) {
+        uploadInProgress = true;
+        uploadPaused = false;
+        uploadCanPause = !!canPause;
+        updateUploadToggle();
+        setUploadProgress(0);
+        if ("Notification" in window && Notification.permission === "default") {
+          Notification.requestPermission().catch(() => {});
+        }
+      }
+
+      function endUploadUI() {
+        uploadInProgress = false;
+        uploadPaused = false;
+        uploadCanPause = false;
+        updateUploadToggle();
+        clearUploadProgress();
+      }
 
       function waitWhilePaused() {
         return new Promise((resolve) => {
@@ -469,12 +499,12 @@
         };
         if (response.attestationObject) {
           obj.response.attestationObject = bufferToBase64url(
-            response.attestationObject,
+            response.attestationObject
           );
         }
         if (response.authenticatorData) {
           obj.response.authenticatorData = bufferToBase64url(
-            response.authenticatorData,
+            response.authenticatorData
           );
         }
         if (response.signature) {
@@ -719,7 +749,7 @@
           const payload = credentialToJSON(assertion);
           const complete = await postJSON(
             "/api/webauthn/auth/complete/",
-            payload,
+            payload
           );
           if (!complete.ok) return false;
           const out = await complete.json();
@@ -780,7 +810,7 @@
           const payload = credentialToJSON(cred);
           const complete = await postJSON(
             "/api/webauthn/register/complete/",
-            payload,
+            payload
           );
           toast(complete.ok ? "ok" : "fail");
         } catch (_) {
@@ -819,7 +849,7 @@
         lastHintAt = now;
         toast(
           "tap logo • hold = actions\n↑ upload (divya)   ↓ download (moti)\n← copy   → paste",
-          2600,
+          2600
         );
       }
 
@@ -863,6 +893,7 @@
         if (cmd === "copy") return commandCopy();
         if (cmd === "paste") return pasteText();
         if (cmd === "clear") return commandClear();
+        if (cmd === "docs") return openDocs();
         if (cmd === "help" || cmd === "?") return commandHelp();
         toast("fail");
       }
@@ -874,6 +905,14 @@
 
       function triggerDownload() {
         window.location.href = "/download/";
+      }
+
+      function openDocs() {
+        try {
+          window.open("https://docs.dshare.me", "_blank", "noopener,noreferrer");
+        } catch (_) {
+          window.location.href = "https://docs.dshare.me";
+        }
       }
 
       function showHelpSheet() {
@@ -971,6 +1010,7 @@
             "copy",
             "paste",
             "clear",
+            "docs",
             "help",
             "?",
           ];
@@ -1032,13 +1072,6 @@
         if (!file || file.size <= 0) {
           throw new Error("empty file");
         }
-        uploadInProgress = true;
-        uploadPaused = false;
-        updateUploadToggle();
-        setUploadProgress(0);
-        if ("Notification" in window && Notification.permission === "default") {
-          Notification.requestPermission().catch(() => {});
-        }
 
         const key = fileUploadKey(file);
         const cached = loadUploadSession(key);
@@ -1085,10 +1118,9 @@
           if (!received.has(index)) missing.push(index);
         }
 
-        const concurrency = Math.min(
-          Math.max(2, Math.min(MAX_PARALLEL_CHUNKS, Math.floor((navigator.hardwareConcurrency || 4) / 2))),
-          missing.length || 1,
-        );
+        let concurrency = Math.floor((navigator.hardwareConcurrency || 4) / 2);
+        concurrency = Math.max(1, Math.min(MAX_PARALLEL_CHUNKS, concurrency));
+        concurrency = Math.min(concurrency, missing.length || 1);
 
         let next = 0;
         async function worker() {
@@ -1117,7 +1149,7 @@
           Array.isArray(completeData.missing_chunks)
         ) {
           const missingAgain = completeData.missing_chunks.filter(
-            (idx) => typeof idx === "number",
+            (idx) => typeof idx === "number"
           );
 
           let nextMissing = 0;
@@ -1131,8 +1163,8 @@
           await Promise.all(
             Array.from(
               { length: Math.min(concurrency, missingAgain.length || 1) },
-              reuploadWorker,
-            ),
+              reuploadWorker
+            )
           );
           complete = await retry(() =>
             postJSON("/api/upload/complete/", {
@@ -1146,6 +1178,77 @@
         }
         clearUploadSession(key);
         return true;
+      }
+
+      function uploadDirectFile(file) {
+        if (!file || file.size <= 0) {
+          return Promise.reject(new Error("empty file"));
+        }
+        return new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", "/upload/", true);
+          xhr.withCredentials = true;
+          xhr.timeout = 1000 * 60 * 30;
+          try {
+            xhr.setRequestHeader("X-CSRFToken", getCsrfToken());
+          } catch (_) {}
+
+          xhr.upload.onprogress = (e) => {
+            if (!e || !e.lengthComputable) return;
+            setUploadProgress((e.loaded / e.total) * 100);
+          };
+
+          xhr.onload = () => {
+            let data = null;
+            try {
+              data = JSON.parse(xhr.responseText || "{}");
+            } catch (_) {}
+            if (xhr.status >= 200 && xhr.status < 300 && data && data.status === "ok") {
+              resolve(true);
+              return;
+            }
+            reject(new Error("direct upload failed"));
+          };
+          xhr.onerror = () => reject(new Error("direct upload failed"));
+          xhr.ontimeout = () => reject(new Error("direct upload timeout"));
+
+          const formData = new FormData();
+          formData.append("file", file, file.name);
+          xhr.send(formData);
+        });
+      }
+
+      async function uploadFileSmart(file) {
+        const smallFile = file && file.size <= CHUNK_SIZE * 2;
+        if (smallFile) {
+          beginUploadUI({ canPause: false });
+          try {
+            await retry(() => uploadDirectFile(file), 2, 600);
+            return true;
+          } catch (err) {
+            console.error(err);
+            toast("retry", 900);
+            setUploadProgress(0);
+            uploadCanPause = true;
+            updateUploadToggle();
+            await uploadChunkedFile(file);
+            return true;
+          }
+        }
+
+        beginUploadUI({ canPause: true });
+        try {
+          await uploadChunkedFile(file);
+          return true;
+        } catch (err) {
+          console.error(err);
+          toast("fallback", 1200);
+          uploadCanPause = false;
+          updateUploadToggle();
+          setUploadProgress(0);
+          await retry(() => uploadDirectFile(file), 2, 700);
+          return true;
+        }
       }
 
       document
@@ -1162,7 +1265,7 @@
             toast("fail");
             return;
           }
-          uploadChunkedFile(file)
+          uploadFileSmart(file)
             .then(() => {
               toast("ok");
               if (
@@ -1174,9 +1277,7 @@
             })
             .catch(() => toast("fail"))
             .finally(() => {
-              uploadInProgress = false;
-              updateUploadToggle();
-              clearUploadProgress();
+              endUploadUI();
             });
         });
 

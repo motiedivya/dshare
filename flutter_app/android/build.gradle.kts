@@ -1,3 +1,6 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+
 allprojects {
     repositories {
         google()
@@ -20,8 +23,9 @@ subprojects {
 }
 subprojects {
     if (name == "receive_sharing_intent") {
-        tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+        tasks.withType<KotlinCompile>().configureEach {
             kotlinOptions.jvmTarget = JavaVersion.VERSION_1_8.toString()
+            compilerOptions.jvmTarget.set(JvmTarget.JVM_1_8)
         }
     }
 }

@@ -2,6 +2,8 @@
 
 DShare is a minimal, keyboard-first file/text sharing tool built with Django.
 
+Docs: https://docs.dshare.me
+
 You don’t “navigate” the UI: you type keywords.
 
 - Type `divya` → upload a file or paste clipboard text

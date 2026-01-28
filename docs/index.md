@@ -15,6 +15,12 @@ Type-to-share <span class="redacted">TOP SECRET</span> files and clipboard text.
 2. Type `divya` and upload a file (or type `/paste`).
 3. On another <span class="redacted">DEVICE</span>, open the site and type `moti`.
 
+### Mobile gestures (no keyboard needed)
+
+- Tap the logo (top-left) or long-press anywhere → Actions (login/logout/etc.)
+- Swipe ↑ upload, ↓ download, ← copy latest text, → paste clipboard text
+- Type `/docs` to open `docs.dshare.me`
+
 ### Private mode (recommended)
 
 1. Type `/register` and enter your email + password (+ optional PIN fallback).
@@ -35,6 +41,7 @@ Optional: type `/passkey` once to add a passkey; `/login` prefers passkeys autom
 - `/paste` — upload clipboard text
 - `/copy` — copy stored text to clipboard
 - `/clear` — clear stored file/text (+ attempts clipboard clear)
+- `/docs` — open docs (`docs.dshare.me`)
 
 ## Security note
 

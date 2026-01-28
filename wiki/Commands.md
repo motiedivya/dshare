@@ -24,13 +24,17 @@ Commands start with `/` (or `\` as an alias). They are detected as you type.
 | `/paste` | no | Uploads clipboard text |
 | `/copy` | no | Copies stored text to clipboard |
 | `/clear` | no | Clears stored file/text (+ attempts clipboard clear) |
+| `/docs` | no | Opens docs at https://docs.dshare.me |
 
 ## Subtle feedback
 
 DShare tries to give minimal hints:
 
-- a short toast in the center (`ok`, `sent`, `fail`, `public`, `private`)
+- a short toast hint (`ok`, `sent`, `fail`, `public`, `private`)
 - a faint `PUBLIC` watermark when not logged in
+- tap the background for a quick hint; `/help` for the full hint sheet
+- tap the logo (top-left) or long-press anywhere for Actions
+- swipe ↑ upload, ↓ download, ← copy, → paste
 
 If something fails:
 
