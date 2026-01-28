@@ -477,6 +477,7 @@ def api_auth_me(request: HttpRequest) -> JsonResponse:
     return JsonResponse(
         {
             "authenticated": True,
+            "email": request.user.email or request.user.username,
             "email_verified": profile.email_verified_at is not None,
             "has_passkey": request.user.webauthn_credentials.exists(),
             "has_password": request.user.has_usable_password(),
@@ -664,6 +665,114 @@ def _upload_chunk_path(session_id: str, index: int) -> str:
     return os.path.join(_upload_session_dir(session_id), f"{index:06d}.part")
 
 
+def _upload_v2_marker_path(session_id: str) -> str:
+    return os.path.join(_upload_session_dir(session_id), ".v2")
+
+
+def _upload_data_path(session_id: str) -> str:
+    return os.path.join(_upload_session_dir(session_id), "data.bin")
+
+
+def _upload_done_marker_path(session_id: str, index: int) -> str:
+    return os.path.join(_upload_session_dir(session_id), f"{index:06d}.done")
+
+
+def _ensure_upload_v2_marker(session_id: str) -> None:
+    marker_path = _upload_v2_marker_path(session_id)
+    if os.path.exists(marker_path):
+        return
+    try:
+        with open(marker_path, "wb"):
+            pass
+    except OSError:
+        logger.exception("Failed to create v2 upload marker")
+
+
+def _scan_received_chunk_indices(
+    session_id: str,
+    *,
+    suffix: str,
+    total_chunks: int,
+    chunk_size: int,
+    total_size: int,
+) -> list[int]:
+    session_dir = _upload_session_dir(session_id)
+    received: set[int] = set()
+    try:
+        with os.scandir(session_dir) as it:
+            for entry in it:
+                if not entry.is_file():
+                    continue
+                name = entry.name
+                if not name.endswith(suffix):
+                    continue
+                stem = name[: -len(suffix)]
+                try:
+                    idx = int(stem)
+                except ValueError:
+                    continue
+                if not (0 <= idx < total_chunks):
+                    continue
+
+                if suffix == ".part":
+                    # Validate size to avoid treating partial files as "received".
+                    expected = total_size - (idx * chunk_size)
+                    expected = min(chunk_size, max(0, expected))
+                    try:
+                        size = entry.stat().st_size
+                    except OSError:
+                        continue
+                    if expected <= 0 or size != expected:
+                        try:
+                            os.remove(entry.path)
+                        except OSError:
+                            pass
+                        continue
+
+                received.add(idx)
+    except FileNotFoundError:
+        return []
+    except OSError:
+        logger.exception("Failed to scan received chunks")
+        return []
+
+    return sorted(received)
+
+
+def _expected_chunk_size(session: UploadSession, index: int) -> int:
+    offset = index * session.chunk_size
+    remaining = session.total_size - offset
+    if remaining <= 0:
+        return 0
+    return min(session.chunk_size, remaining)
+
+
+def _open_upload_data_file(path: str):
+    try:
+        return open(path, "r+b")
+    except FileNotFoundError:
+        try:
+            return open(path, "x+b")
+        except FileExistsError:
+            return open(path, "r+b")
+
+
+def _touch_upload_session(session: UploadSession) -> None:
+    # Avoid a DB write for every chunk; once per ~30s is plenty to prevent
+    # long-running uploads from being cleaned up as "expired".
+    key = f"dshare:upload_touch:{session.id}"
+    try:
+        should_touch = cache.add(key, "1", timeout=30)
+    except Exception:
+        should_touch = True
+    if not should_touch:
+        return
+    try:
+        UploadSession.objects.filter(id=session.id).update(updated_at=timezone.now())
+    except Exception:
+        logger.exception("Failed to touch upload session")
+
+
 def _delete_upload_session_files(session: UploadSession) -> None:
     try:
         shutil.rmtree(_upload_session_dir(str(session.id)), ignore_errors=True)
@@ -690,14 +799,22 @@ def api_upload_start(request: HttpRequest) -> JsonResponse:
     filename = (data.get("filename") or "").strip()
     total_size = int(data.get("size") or 0)
     content_type = (data.get("content_type") or "").strip()
-    chunk_size = int(data.get("chunk_size") or 0) or 1024 * 1024
+    default_chunk_size = int(
+        getattr(settings, "DSHARE_UPLOAD_DEFAULT_CHUNK_BYTES", 8 * 1024 * 1024)
+    )
+    max_chunk_size = int(
+        getattr(settings, "DSHARE_UPLOAD_MAX_CHUNK_BYTES", 32 * 1024 * 1024)
+    )
+    min_chunk_size = int(
+        getattr(settings, "DSHARE_UPLOAD_MIN_CHUNK_BYTES", 256 * 1024)
+    )
+    chunk_size = int(data.get("chunk_size") or 0) or default_chunk_size
     upload_id = (data.get("upload_id") or "").strip()
 
     if not filename or total_size <= 0:
         return JsonResponse({"status": "fail"}, status=400)
 
-    if chunk_size <= 0:
-        chunk_size = 1024 * 1024
+    chunk_size = max(min_chunk_size, min(chunk_size, max_chunk_size))
 
     max_bytes = int(
         getattr(
@@ -744,18 +861,31 @@ def api_upload_start(request: HttpRequest) -> JsonResponse:
             total_chunks=total_chunks,
             received_chunks=[],
         )
-    else:
-        received = set()
-        for idx in session.received_chunks or []:
-            try:
-                value = int(idx)
-            except (TypeError, ValueError):
-                continue
-            if 0 <= value < total_chunks:
-                received.add(value)
-        session.received_chunks = sorted(received)
-        session.total_chunks = total_chunks
-        session.save(update_fields=["received_chunks", "total_chunks", "updated_at"])
+
+    session_dir = _upload_session_dir(str(session.id))
+    os.makedirs(session_dir, exist_ok=True)
+
+    legacy_received = _scan_received_chunk_indices(
+        str(session.id),
+        suffix=".part",
+        total_chunks=total_chunks,
+        chunk_size=session.chunk_size,
+        total_size=session.total_size,
+    )
+    received_chunks = legacy_received
+    if not legacy_received:
+        _ensure_upload_v2_marker(str(session.id))
+        received_chunks = _scan_received_chunk_indices(
+            str(session.id),
+            suffix=".done",
+            total_chunks=total_chunks,
+            chunk_size=session.chunk_size,
+            total_size=session.total_size,
+        )
+
+    session.received_chunks = received_chunks
+    session.total_chunks = total_chunks
+    session.save(update_fields=["received_chunks", "total_chunks", "updated_at"])
 
     return JsonResponse(
         {
@@ -801,33 +931,47 @@ def api_upload_chunk(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"status": "fail"}, status=400)
 
     uploaded_file = request.FILES["chunk"]
-    if index < session.total_chunks - 1 and _file_size(uploaded_file) > session.chunk_size:
-        return JsonResponse({"status": "fail"}, status=413)
 
-    session_dir = _upload_session_dir(str(session.id))
+    expected_size = _expected_chunk_size(session, index)
+    if expected_size <= 0:
+        return JsonResponse({"status": "fail"}, status=400)
+    actual_size = _file_size(uploaded_file)
+    if actual_size != expected_size:
+        return JsonResponse({"status": "fail"}, status=400)
+
+    session_id = str(session.id)
+    session_dir = _upload_session_dir(session_id)
     os.makedirs(session_dir, exist_ok=True)
-    chunk_path = _upload_chunk_path(str(session.id), index)
-    with open(chunk_path, "wb") as handle:
-        for chunk in uploaded_file.chunks():
-            handle.write(chunk)
 
-    received = set()
-    for idx in session.received_chunks or []:
+    use_v2 = os.path.exists(_upload_v2_marker_path(session_id))
+    if use_v2:
+        data_path = _upload_data_path(session_id)
+        offset = index * session.chunk_size
+        with _open_upload_data_file(data_path) as handle:
+            handle.seek(offset)
+            try:
+                uploaded_file.file.seek(0)
+            except Exception:
+                pass
+            shutil.copyfileobj(uploaded_file.file, handle, length=8 * 1024 * 1024)
+        marker_path = _upload_done_marker_path(session_id, index)
         try:
-            received.add(int(idx))
-        except (TypeError, ValueError):
-            continue
-    received.add(index)
-    session.received_chunks = sorted(received)
-    session.save(update_fields=["received_chunks", "updated_at"])
+            with open(marker_path, "wb"):
+                pass
+        except OSError:
+            logger.exception("Failed to write upload marker")
+    else:
+        chunk_path = _upload_chunk_path(session_id, index)
+        with open(chunk_path, "wb") as handle:
+            try:
+                uploaded_file.file.seek(0)
+            except Exception:
+                pass
+            shutil.copyfileobj(uploaded_file.file, handle, length=8 * 1024 * 1024)
 
-    return JsonResponse(
-        {
-            "status": "ok",
-            "received": len(session.received_chunks),
-            "total": session.total_chunks,
-        }
-    )
+    _touch_upload_session(session)
+
+    return JsonResponse({"status": "ok"})
 
 
 @require_POST
@@ -851,33 +995,57 @@ def api_upload_complete(request: HttpRequest) -> JsonResponse:
     if session.user_id and not request.user.is_authenticated:
         return JsonResponse({"status": "fail"}, status=403)
 
-    received = set()
-    for idx in session.received_chunks or []:
-        try:
-            received.add(int(idx))
-        except (TypeError, ValueError):
-            continue
-    if len(received) != session.total_chunks:
-        missing = [i for i in range(session.total_chunks) if i not in received]
-        return JsonResponse(
-            {"status": "fail", "missing_chunks": missing}, status=409
+    session_id = str(session.id)
+    session_dir = _upload_session_dir(session_id)
+    os.makedirs(session_dir, exist_ok=True)
+
+    legacy_received = _scan_received_chunk_indices(
+        session_id,
+        suffix=".part",
+        total_chunks=session.total_chunks,
+        chunk_size=session.chunk_size,
+        total_size=session.total_size,
+    )
+    received = legacy_received
+    scheme = "legacy" if legacy_received else "v2"
+    if not legacy_received:
+        received = _scan_received_chunk_indices(
+            session_id,
+            suffix=".done",
+            total_chunks=session.total_chunks,
+            chunk_size=session.chunk_size,
+            total_size=session.total_size,
         )
 
-    os.makedirs(_upload_chunk_root(), exist_ok=True)
-    temp_path = os.path.join(_upload_chunk_root(), f"{session.id}.tmp")
+    received_set = set(received)
+    if len(received_set) != session.total_chunks:
+        missing = [i for i in range(session.total_chunks) if i not in received_set]
+        return JsonResponse({"status": "fail", "missing_chunks": missing}, status=409)
+
+    assembled_path = _upload_data_path(session_id)
+    assembled_temp = None
+    if scheme == "legacy":
+        assembled_temp = os.path.join(session_dir, "assembled.bin")
+        try:
+            with open(assembled_temp, "wb") as out:
+                for index in range(session.total_chunks):
+                    chunk_path = _upload_chunk_path(session_id, index)
+                    if not os.path.exists(chunk_path):
+                        return JsonResponse({"status": "fail"}, status=409)
+                    with open(chunk_path, "rb") as chunk_file:
+                        shutil.copyfileobj(chunk_file, out, length=8 * 1024 * 1024)
+        except OSError:
+            logger.exception("Failed to assemble legacy upload chunks")
+            return JsonResponse({"status": "fail"}, status=500)
+        assembled_path = assembled_temp
+
+    if not os.path.exists(assembled_path):
+        return JsonResponse({"status": "fail"}, status=409)
+    if os.path.getsize(assembled_path) != session.total_size:
+        return JsonResponse({"status": "fail"}, status=409)
+
     completed = False
     try:
-        with open(temp_path, "wb") as out:
-            for index in range(session.total_chunks):
-                chunk_path = _upload_chunk_path(str(session.id), index)
-                if not os.path.exists(chunk_path):
-                    return JsonResponse({"status": "fail"}, status=409)
-                with open(chunk_path, "rb") as chunk_file:
-                    shutil.copyfileobj(chunk_file, out)
-
-        if os.path.getsize(temp_path) != session.total_size:
-            return JsonResponse({"status": "fail"}, status=409)
-
         share = (
             _get_or_create_public_share()
             if is_public
@@ -895,18 +1063,31 @@ def api_upload_complete(request: HttpRequest) -> JsonResponse:
         if share.file:
             _delete_field_file(share.file)
 
-        with open(temp_path, "rb") as handle:
-            django_file = File(handle, name=session.filename)
-            share.file.save(session.filename, django_file, save=False)
+        stored = False
+        try:
+            storage = share.file.storage
+            final_name = share.file.field.generate_filename(share, session.filename)
+            final_path = storage.path(final_name)
+            os.makedirs(os.path.dirname(final_path), exist_ok=True)
+            os.replace(assembled_path, final_path)
+            share.file.name = final_name
+            stored = True
+        except Exception:
+            stored = False
+
+        if not stored:
+            with open(assembled_path, "rb") as handle:
+                django_file = File(handle, name=session.filename)
+                share.file.save(session.filename, django_file, save=False)
         share.text = None
         share.save(update_fields=["file", "text", "updated_at"])
         completed = True
     finally:
-        if os.path.exists(temp_path):
+        if not completed and assembled_temp and os.path.exists(assembled_temp):
             try:
-                os.remove(temp_path)
+                os.remove(assembled_temp)
             except OSError:
-                logger.exception("Failed to remove temp upload file")
+                logger.exception("Failed to remove assembled temp upload file")
         if completed:
             _delete_upload_session_files(session)
             session.delete()

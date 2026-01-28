@@ -15,14 +15,13 @@ import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'dshare_api.dart';
-import 'gesture_recognizer.dart';
-
 const String kBaseUrl = String.fromEnvironment(
   'DSHARE_BASE_URL',
   defaultValue: 'https://dshare.me',
 );
 
-const int kChunkSize = 1024 * 1024;
+const int kChunkSize = 8 * 1024 * 1024;
+const int kMaxParallelChunkUploads = 3;
 final FlutterLocalNotificationsPlugin kNotifications =
     FlutterLocalNotificationsPlugin();
 
@@ -94,13 +93,12 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final FocusNode _focusNode = FocusNode();
-  final OneDollarRecognizer _recognizer = buildDefaultRecognizer();
   final List<Offset> _stroke = [];
-  static const double _gestureScoreThreshold = 0.72;
   Timer? _toastTimer;
   String _toastMessage = '';
   bool _toastVisible = false;
   bool _isPublic = true;
+  String? _accountEmail;
   bool _ready = false;
   String _buffer = '';
   double? _uploadProgress;
@@ -219,11 +217,14 @@ class _HomePageState extends State<HomePage> {
       final res = await _api!.getJson('/api/auth/me/');
       final data = _jsonMap(res.data);
       final authenticated = data != null && data['authenticated'] == true;
+      final email =
+          authenticated ? (data?['email'] as String?)?.trim() : null;
       if (!mounted) {
         return;
       }
       setState(() {
         _isPublic = !authenticated;
+        _accountEmail = (email != null && email.isNotEmpty) ? email : null;
       });
     } catch (_) {
       if (!mounted) {
@@ -231,6 +232,7 @@ class _HomePageState extends State<HomePage> {
       }
       setState(() {
         _isPublic = true;
+        _accountEmail = null;
       });
     }
   }
@@ -259,6 +261,23 @@ class _HomePageState extends State<HomePage> {
       return true;
     }
     return data['status'] == 'ok';
+  }
+
+  void _showAuthFailure(Response<dynamic> res) {
+    final code = res.statusCode ?? 0;
+    if (code == 401) {
+      _showToast('bad creds');
+      return;
+    }
+    if (code == 403) {
+      _showToast('verify email');
+      return;
+    }
+    if (code == 429) {
+      _showToast('rate limited');
+      return;
+    }
+    _showToast('fail');
   }
 
   void _handleKey(RawKeyEvent event) {
@@ -420,6 +439,86 @@ class _HomePageState extends State<HomePage> {
     return netDy < 0 ? DshareAction.upload : DshareAction.download;
   }
 
+  DshareAction? _horizontalSwipeAction(List<Offset> stroke) {
+    if (stroke.length < 2) {
+      return null;
+    }
+    final size = MediaQuery.of(context).size;
+    final minDx = math.max(50.0, size.width * 0.06);
+    final maxDy = math.max(220.0, size.height * 0.65);
+    double minX = stroke.first.dx;
+    double maxX = stroke.first.dx;
+    double minY = stroke.first.dy;
+    double maxY = stroke.first.dy;
+    double sumAbsDx = 0.0;
+    double sumAbsDy = 0.0;
+    int posDxSegments = 0;
+    int negDxSegments = 0;
+    for (int i = 1; i < stroke.length; i++) {
+      final prev = stroke[i - 1];
+      final curr = stroke[i];
+      final dx = curr.dx - prev.dx;
+      final dy = curr.dy - prev.dy;
+      sumAbsDx += dx.abs();
+      sumAbsDy += dy.abs();
+      if (dx > 2.0) {
+        posDxSegments += 1;
+      } else if (dx < -2.0) {
+        negDxSegments += 1;
+      }
+      if (curr.dx < minX) minX = curr.dx;
+      if (curr.dx > maxX) maxX = curr.dx;
+      if (curr.dy < minY) minY = curr.dy;
+      if (curr.dy > maxY) maxY = curr.dy;
+    }
+    final dxRange = maxX - minX;
+    final dyRange = maxY - minY;
+    if (dxRange < minDx) {
+      return null;
+    }
+    if (dyRange > maxDy) {
+      return null;
+    }
+    if (sumAbsDx <= 0) {
+      return null;
+    }
+    final dominance =
+        sumAbsDy == 0 ? double.infinity : (sumAbsDx / sumAbsDy);
+    if (dominance < 1.05) {
+      return null;
+    }
+    final totalDx = posDxSegments + negDxSegments;
+    if (totalDx > 0) {
+      final dominant =
+          math.max(posDxSegments, negDxSegments) / totalDx;
+      if (dominant < 0.6) {
+        return null;
+      }
+    }
+    final netDx = stroke.last.dx - stroke.first.dx;
+    if (netDx.abs() < dxRange * 0.35) {
+      return null;
+    }
+    return netDx < 0 ? DshareAction.copy : DshareAction.paste;
+  }
+
+  DshareAction? _horizontalSwipeFallback(List<Offset> stroke) {
+    if (stroke.length < 2) {
+      return null;
+    }
+    final size = MediaQuery.of(context).size;
+    final minDx = math.max(40.0, size.width * 0.05);
+    final netDx = stroke.last.dx - stroke.first.dx;
+    final netDy = stroke.last.dy - stroke.first.dy;
+    if (netDx.abs() < minDx) {
+      return null;
+    }
+    if (netDx.abs() < netDy.abs() * 1.1) {
+      return null;
+    }
+    return netDx < 0 ? DshareAction.copy : DshareAction.paste;
+  }
+
   void _handleStrokeEnd() {
     if (_stroke.length < 2) {
       _stroke.clear();
@@ -439,51 +538,17 @@ class _HomePageState extends State<HomePage> {
       _runAction(fallbackAction);
       return;
     }
-    if (stroke.length < 10) {
+    final horizontalAction = _horizontalSwipeAction(stroke);
+    if (horizontalAction != null) {
+      _runAction(horizontalAction);
       return;
     }
-    final result = _recognizer.recognize(stroke);
-    if (result == null || result.score < _gestureScoreThreshold) {
-      _showToast('fail');
+    final horizontalFallback = _horizontalSwipeFallback(stroke);
+    if (horizontalFallback != null) {
+      _runAction(horizontalFallback);
       return;
     }
-    switch (result.name) {
-      case 'R':
-        _runAction(DshareAction.register);
-        break;
-      case 'L':
-        _runAction(DshareAction.login);
-        break;
-      case 'P':
-        _runAction(DshareAction.paste);
-        break;
-      case 'S':
-        _runAction(DshareAction.status);
-        break;
-      case 'C':
-        _runAction(DshareAction.copy);
-        break;
-      case 'M':
-        _runAction(DshareAction.me);
-        break;
-      case 'K':
-        _runAction(DshareAction.passkey);
-        break;
-      case 'H':
-        _runAction(DshareAction.help);
-        break;
-      case 'UP':
-      case 'ARROW_UP':
-        _runAction(DshareAction.upload);
-        break;
-      case 'DOWN':
-      case 'ARROW_DOWN':
-        _runAction(DshareAction.download);
-        break;
-      default:
-        _showToast('fail');
-        break;
-    }
+    _showToast('hold for actions');
   }
 
   Future<void> _runAction(DshareAction action) async {
@@ -600,7 +665,7 @@ class _HomePageState extends State<HomePage> {
         _showToast('ok');
         await _refreshMode();
       } else {
-        _showToast('fail');
+        _showAuthFailure(res);
       }
       return;
     }
@@ -637,7 +702,7 @@ class _HomePageState extends State<HomePage> {
       _showToast('ok');
       await _refreshMode();
     } else {
-      _showToast('fail');
+      _showAuthFailure(res);
     }
   }
 
@@ -679,19 +744,108 @@ class _HomePageState extends State<HomePage> {
       return;
     }
     final authenticated = data['authenticated'] == true;
+    final email = (data['email'] as String?)?.trim() ?? '';
     final emailVerified = data['email_verified'] == true;
     final hasPasskey = data['has_passkey'] == true;
     final hasPassword = data['has_password'] == true;
     final hasPin = data['has_pin'] == true;
     final summary = authenticated
-        ? 'me: verified=$emailVerified passkey=$hasPasskey pw=$hasPassword pin=$hasPin'
+        ? 'me: $email verified=$emailVerified passkey=$hasPasskey pw=$hasPassword pin=$hasPin'
         : 'me: public';
     _showToast(summary, ms: 3000);
     await _refreshMode();
   }
 
   void _actionHelp() {
-    _showToast('R/L/P/S/C/M/K/H, up/down, /register /login /logout /help', ms: 3500);
+    _showToast('swipe up/down/left/right, hold for actions, /register /login /logout /help', ms: 3500);
+  }
+
+  Future<void> _showActionSheet() async {
+    if (!_ready) {
+      _showToast('loading');
+      return;
+    }
+    _stroke.clear();
+    setState(() {});
+    final items = <_ActionSheetItem>[
+      if (_isPublic) _ActionSheetItem('Register', DshareAction.register),
+      if (_isPublic) _ActionSheetItem('Login', DshareAction.login),
+      if (!_isPublic) _ActionSheetItem('Logout', DshareAction.logout),
+      _ActionSheetItem('Upload file', DshareAction.upload),
+      _ActionSheetItem('Download', DshareAction.download),
+      _ActionSheetItem('Paste clipboard', DshareAction.paste),
+      _ActionSheetItem('Copy to clipboard', DshareAction.copy),
+      _ActionSheetItem('Status', DshareAction.status),
+      _ActionSheetItem('Me', DshareAction.me),
+      _ActionSheetItem('Passkey (web)', DshareAction.passkey),
+      _ActionSheetItem('Clear', DshareAction.clear),
+      _ActionSheetItem('Help', DshareAction.help),
+    ];
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.black,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        final maxHeight = MediaQuery.of(context).size.height * 0.6;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _isPublic ? 'public' : 'private',
+                  style: const TextStyle(fontSize: 12, letterSpacing: 1.6),
+                ),
+                if (_accountEmail != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      _accountEmail!,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.white.withOpacity(0.6),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: maxHeight,
+                  child: ListView.separated(
+                    itemCount: items.length,
+                    separatorBuilder: (_, __) => Divider(
+                      color: Colors.white.withOpacity(0.1),
+                      height: 1,
+                    ),
+                    itemBuilder: (context, index) {
+                      final item = items[index];
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          item.label,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                        onTap: () {
+                          Navigator.of(context).pop();
+                          _runAction(item.action);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _notify(String message) async {
@@ -760,6 +914,26 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<T> _retry<T>(
+    Future<T> Function() action, {
+    int attempts = 4,
+    int baseDelayMs = 400,
+  }) async {
+    int delayMs = baseDelayMs;
+    for (int attempt = 0; attempt < attempts; attempt++) {
+      try {
+        return await action();
+      } catch (_) {
+        if (attempt == attempts - 1) {
+          rethrow;
+        }
+        await Future.delayed(Duration(milliseconds: delayMs));
+        delayMs *= 2;
+      }
+    }
+    throw Exception('retry failed');
+  }
+
   Future<void> _uploadFilePath(
     String path, {
     bool showUploadingToast = false,
@@ -783,15 +957,23 @@ class _HomePageState extends State<HomePage> {
     }
     final key = _uploadCacheKey(path, stat.size, stat.modified.millisecondsSinceEpoch);
     final cached = await _loadUploadCache(key);
-    final startRes = await _api!.startUploadSession(
-      filename: p.basename(path),
-      size: stat.size,
-      chunkSize: kChunkSize,
-      contentType: '',
-      uploadId: cached != null ? cached['upload_id'] as String? : null,
-    );
-    final startData = _jsonMap(startRes.data);
-    if (startData == null || startData['status'] != 'ok') {
+    Map<String, dynamic> startData;
+    try {
+      startData = await _retry(() async {
+        final startRes = await _api!.startUploadSession(
+          filename: p.basename(path),
+          size: stat.size,
+          chunkSize: kChunkSize,
+          contentType: '',
+          uploadId: cached != null ? cached['upload_id'] as String? : null,
+        );
+        final data = _jsonMap(startRes.data);
+        if (!_isOk(startRes) || data == null || data['status'] != 'ok') {
+          throw Exception('upload start failed');
+        }
+        return data;
+      });
+    } catch (_) {
       _showToast('fail');
       return;
     }
@@ -824,36 +1006,140 @@ class _HomePageState extends State<HomePage> {
       _uploadProgress = uploadedBytes / stat.size;
       _uploadPaused = false;
     });
-    final raf = await file.open();
     bool ok = false;
     try {
-      for (int index = 0; index < totalChunks; index++) {
-        if (received.contains(index)) {
-          continue;
+      Future<bool> completeWithRecovery() async {
+        Response<dynamic> completeRes;
+        try {
+          completeRes = await _retry(() async {
+            final res = await _api!.completeUpload(uploadId);
+            final data = _jsonMap(res.data);
+            if (_isOk(res)) {
+              return res;
+            }
+            if (res.statusCode == 409 && data?['missing_chunks'] is List) {
+              return res;
+            }
+            throw Exception('upload complete failed');
+          });
+        } catch (_) {
+          return false;
         }
-        await _waitWhilePaused();
-        final length = _chunkByteSize(stat.size, index, chunkSize);
-        await raf.setPosition(index * chunkSize);
-        final bytes = await raf.read(length);
-        final res = await _api!.uploadChunk(
-          uploadId: uploadId,
-          index: index,
-          bytes: bytes,
-          filename: p.basename(path),
-        );
-        if (!_isOk(res)) {
-          throw Exception('chunk failed');
+        if (_isOk(completeRes)) {
+          return true;
         }
-        uploadedBytes += bytes.length;
-        if (!mounted) {
-          return;
+        final completeData = _jsonMap(completeRes.data);
+        final missing = completeData?['missing_chunks'];
+        if (missing is! List) {
+          return false;
         }
-        setState(() {
-          _uploadProgress = uploadedBytes / stat.size;
-        });
+        final recoveryRaf = await file.open();
+        try {
+          for (final item in missing) {
+            if (item is! num) {
+              continue;
+            }
+            final index = item.toInt();
+            if (index < 0 || index >= totalChunks) {
+              continue;
+            }
+            await _waitWhilePaused();
+            final length = _chunkByteSize(stat.size, index, chunkSize);
+            await recoveryRaf.setPosition(index * chunkSize);
+            final bytes = await recoveryRaf.read(length);
+            try {
+              await _retry(() async {
+                final res = await _api!.uploadChunk(
+                  uploadId: uploadId,
+                  index: index,
+                  bytes: bytes,
+                  filename: p.basename(path),
+                );
+                if (!_isOk(res)) {
+                  throw Exception('chunk retry failed');
+                }
+                return true;
+              });
+            } catch (_) {
+              return false;
+            }
+          }
+        } finally {
+          await recoveryRaf.close();
+        }
+        try {
+          final res = await _retry(() async {
+            final res = await _api!.completeUpload(uploadId);
+            if (!_isOk(res)) {
+              throw Exception('upload complete failed');
+            }
+            return res;
+          });
+          return _isOk(res);
+        } catch (_) {
+          return false;
+        }
       }
-      final completeRes = await _api!.completeUpload(uploadId);
-      ok = _isOk(completeRes);
+
+      final pending = <int>[];
+      for (int index = 0; index < totalChunks; index++) {
+        if (!received.contains(index)) {
+          pending.add(index);
+        }
+      }
+
+      final cpu = Platform.numberOfProcessors;
+      final baseConcurrency = math.max(
+        1,
+        math.min(kMaxParallelChunkUploads, cpu ~/ 2),
+      );
+      final concurrency =
+          pending.isEmpty ? 0 : math.min(baseConcurrency, pending.length);
+
+      int next = 0;
+      Future<void> worker() async {
+        final workerRaf = await file.open();
+        try {
+          while (true) {
+            final i = next++;
+            if (i >= pending.length) {
+              return;
+            }
+            final index = pending[i];
+            await _waitWhilePaused();
+            final length = _chunkByteSize(stat.size, index, chunkSize);
+            await workerRaf.setPosition(index * chunkSize);
+            final bytes = await workerRaf.read(length);
+            await _retry(() async {
+              final res = await _api!.uploadChunk(
+                uploadId: uploadId,
+                index: index,
+                bytes: bytes,
+                filename: p.basename(path),
+              );
+              if (!_isOk(res)) {
+                throw Exception('chunk failed');
+              }
+              return true;
+            });
+            received.add(index);
+            uploadedBytes += bytes.length;
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _uploadProgress = uploadedBytes / stat.size;
+            });
+          }
+        } finally {
+          await workerRaf.close();
+        }
+      }
+
+      if (concurrency > 0) {
+        await Future.wait(List.generate(concurrency, (_) => worker()));
+      }
+      ok = await completeWithRecovery();
       _showToast(ok ? 'ok' : 'fail');
       if (ok) {
         await _clearUploadCache(key);
@@ -862,7 +1148,6 @@ class _HomePageState extends State<HomePage> {
     } catch (_) {
       _showToast('fail');
     } finally {
-      await raf.close();
       if (!mounted) {
         return;
       }
@@ -961,6 +1246,7 @@ class _HomePageState extends State<HomePage> {
             _focusNode.requestFocus();
             _actionHelp();
           },
+          onLongPress: _showActionSheet,
           onPanStart: (details) {
             _focusNode.requestFocus();
             _stroke
@@ -1012,6 +1298,16 @@ class _HomePageState extends State<HomePage> {
                           letterSpacing: 1.6,
                         ),
                       ),
+                      if (_accountEmail != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          _accountEmail!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.white.withOpacity(0.65),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 6),
                       Text(
                         kBaseUrl,
@@ -1097,7 +1393,7 @@ class _HomePageState extends State<HomePage> {
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Text(
-                    'draw or type /help',
+                    'swipe or hold for actions',
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.white.withOpacity(0.45),
@@ -1153,6 +1449,12 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
+}
+
+class _ActionSheetItem {
+  final String label;
+  final DshareAction action;
+  _ActionSheetItem(this.label, this.action);
 }
 
 class StrokePainter extends CustomPainter {

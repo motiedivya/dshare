@@ -13,6 +13,26 @@
       href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
       rel="stylesheet"
     />
+    <style>
+      .dshare-glass {
+        background:
+          radial-gradient(
+            120% 120% at 10% 0%,
+            rgba(168, 85, 247, 0.18),
+            transparent 55%
+          ),
+          radial-gradient(
+            120% 120% at 90% 10%,
+            rgba(236, 72, 153, 0.14),
+            transparent 60%
+          ),
+          rgba(0, 0, 0, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+      }
+    </style>
   </head>
   <body class="bg-black text-white font-sans" style="touch-action: none">
     <div class="min-h-screen flex items-center justify-center">
@@ -26,14 +46,32 @@
           class="w-56 sm:w-64 md:w-72"
         />
       </div>
-      <img
-        src="{% static 'dshare_icon.png' %}"
-        alt="DShare"
-        class="pointer-events-none fixed top-4 left-4 w-8 h-8 opacity-70"
-      />
+      <button
+        id="open-actions"
+        type="button"
+        class="fixed top-4 left-4 z-40 flex h-9 w-9 items-center justify-center rounded-full border border-white border-opacity-10 bg-black bg-opacity-30 shadow-lg focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-20"
+        style="backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);"
+        aria-label="Open actions"
+      >
+        <img
+          src="{% static 'dshare_icon.png' %}"
+          alt="DShare"
+          class="h-6 w-6 opacity-80"
+        />
+      </button>
+      <button
+        id="open-actions-label"
+        type="button"
+        class="fixed top-4 left-14 z-40 text-left text-xs tracking-widest text-white focus:outline-none"
+        aria-label="Open actions"
+      >
+        <div id="mode-label">public</div>
+        <div id="account-label" class="text-xs tracking-normal text-white text-opacity-60"></div>
+      </button>
       <div
         id="toast"
-        class="hidden fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white text-black px-4 py-2 rounded opacity-90 text-sm select-none"
+        class="dshare-glass hidden fixed bottom-24 left-1/2 z-50 max-w-sm -translate-x-1/2 rounded-lg px-4 py-3 text-xs tracking-wide leading-relaxed text-white select-none"
+        style="white-space: pre-wrap;"
       ></div>
       <div
         id="upload-progress"
@@ -52,7 +90,7 @@
         <button
           id="upload-toggle"
           type="button"
-          class="hidden px-3 py-1 text-[10px] tracking-widest uppercase border border-white/30 text-white/80 hover:text-white"
+          class="hidden px-3 py-1 text-xs tracking-widest uppercase border border-white border-opacity-30 text-white text-opacity-80 hover:bg-white hover:bg-opacity-5 hover:text-opacity-100"
         >
           Pause
         </button>
@@ -73,6 +111,143 @@
         <button onclick="pasteText()" class="p-2 bg-white text-black">
           Paste Clipboard
         </button>
+      </div>
+      <div
+        id="action-sheet"
+        class="hidden fixed inset-0 z-50 flex items-start justify-center bg-black bg-opacity-90 text-white"
+      >
+        <div
+          class="dshare-glass mt-20 w-full max-w-xs mx-4 rounded-lg p-4"
+        >
+          <div class="text-xs uppercase tracking-widest text-white text-opacity-60">
+            Actions
+          </div>
+          <div id="action-account" class="mt-2 text-xs text-white text-opacity-70"></div>
+          <div class="mt-4 grid gap-2 text-sm">
+            <button data-action="upload" type="button" class="w-full rounded border border-white border-opacity-20 px-3 py-2 text-left hover:bg-white hover:bg-opacity-5">
+              <div class="flex items-center justify-between gap-4">
+                <span>Upload file</span>
+                <span class="text-xs tracking-widest text-white text-opacity-50">↑ divya</span>
+              </div>
+            </button>
+            <button data-action="download" type="button" class="w-full rounded border border-white border-opacity-20 px-3 py-2 text-left hover:bg-white hover:bg-opacity-5">
+              <div class="flex items-center justify-between gap-4">
+                <span>Download</span>
+                <span class="text-xs tracking-widest text-white text-opacity-50">↓ moti</span>
+              </div>
+            </button>
+            <button data-action="paste" type="button" class="w-full rounded border border-white border-opacity-20 px-3 py-2 text-left hover:bg-white hover:bg-opacity-5">
+              <div class="flex items-center justify-between gap-4">
+                <span>Paste clipboard</span>
+                <span class="text-xs tracking-widest text-white text-opacity-50">→ /paste</span>
+              </div>
+            </button>
+            <button data-action="copy" type="button" class="w-full rounded border border-white border-opacity-20 px-3 py-2 text-left hover:bg-white hover:bg-opacity-5">
+              <div class="flex items-center justify-between gap-4">
+                <span>Copy to clipboard</span>
+                <span class="text-xs tracking-widest text-white text-opacity-50">← /copy</span>
+              </div>
+            </button>
+            <button data-action="status" type="button" class="w-full rounded border border-white border-opacity-20 px-3 py-2 text-left hover:bg-white hover:bg-opacity-5">
+              <div class="flex items-center justify-between gap-4">
+                <span>Status</span>
+                <span class="text-xs tracking-widest text-white text-opacity-50">/status</span>
+              </div>
+            </button>
+            <button data-action="me" type="button" class="w-full rounded border border-white border-opacity-20 px-3 py-2 text-left hover:bg-white hover:bg-opacity-5">
+              <div class="flex items-center justify-between gap-4">
+                <span>Me</span>
+                <span class="text-xs tracking-widest text-white text-opacity-50">/me</span>
+              </div>
+            </button>
+            <button data-action="passkey" type="button" class="w-full rounded border border-white border-opacity-20 px-3 py-2 text-left hover:bg-white hover:bg-opacity-5">
+              <div class="flex items-center justify-between gap-4">
+                <span>Passkey</span>
+                <span class="text-xs tracking-widest text-white text-opacity-50">/passkey</span>
+              </div>
+            </button>
+            <button data-action="register" type="button" class="w-full rounded border border-white border-opacity-20 px-3 py-2 text-left hover:bg-white hover:bg-opacity-5">
+              <div class="flex items-center justify-between gap-4">
+                <span>Register</span>
+                <span class="text-xs tracking-widest text-white text-opacity-50">/register</span>
+              </div>
+            </button>
+            <button data-action="login" type="button" class="w-full rounded border border-white border-opacity-20 px-3 py-2 text-left hover:bg-white hover:bg-opacity-5">
+              <div class="flex items-center justify-between gap-4">
+                <span>Login</span>
+                <span class="text-xs tracking-widest text-white text-opacity-50">/login</span>
+              </div>
+            </button>
+            <button data-action="logout" type="button" class="w-full rounded border border-white border-opacity-20 px-3 py-2 text-left hover:bg-white hover:bg-opacity-5">
+              <div class="flex items-center justify-between gap-4">
+                <span>Logout</span>
+                <span class="text-xs tracking-widest text-white text-opacity-50">/logout</span>
+              </div>
+            </button>
+            <button data-action="clear" type="button" class="w-full rounded border border-white border-opacity-20 px-3 py-2 text-left hover:bg-white hover:bg-opacity-5">
+              <div class="flex items-center justify-between gap-4">
+                <span>Clear</span>
+                <span class="text-xs tracking-widest text-white text-opacity-50">/clear</span>
+              </div>
+            </button>
+            <button data-action="help" type="button" class="w-full rounded border border-white border-opacity-20 px-3 py-2 text-left hover:bg-white hover:bg-opacity-5">
+              <div class="flex items-center justify-between gap-4">
+                <span>Help</span>
+                <span class="text-xs tracking-widest text-white text-opacity-50">? · /help</span>
+              </div>
+            </button>
+          </div>
+          <button
+            id="action-close"
+            type="button"
+            class="mt-4 w-full rounded border border-white border-opacity-20 px-3 py-2 text-xs uppercase tracking-widest text-white text-opacity-70 hover:bg-white hover:bg-opacity-5"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+      <div
+        id="help-sheet"
+        class="hidden fixed inset-0 z-50 flex items-start justify-center bg-black bg-opacity-90 text-white"
+      >
+        <div
+          class="dshare-glass mt-20 w-full max-w-sm mx-4 rounded-lg p-4"
+        >
+          <div class="flex items-center justify-between gap-4">
+            <div class="text-xs uppercase tracking-widest text-white text-opacity-60">
+              Hints
+            </div>
+            <button
+              id="help-close"
+              type="button"
+              class="rounded border border-white border-opacity-20 px-2 py-1 text-xs uppercase tracking-widest text-white text-opacity-70 hover:bg-white hover:bg-opacity-5"
+            >
+              Close
+            </button>
+          </div>
+          <div class="mt-3 space-y-2 text-sm text-white text-opacity-80">
+            <div><span class="font-mono">↑</span> Upload <span class="text-xs text-white text-opacity-60">(type <span class="font-mono">divya</span>)</span></div>
+            <div><span class="font-mono">↓</span> Download <span class="text-xs text-white text-opacity-60">(type <span class="font-mono">moti</span>)</span></div>
+            <div><span class="font-mono">←</span> Copy latest text</div>
+            <div><span class="font-mono">→</span> Paste clipboard text</div>
+            <div><span class="font-mono">Hold</span> anywhere (or tap the logo) for Actions</div>
+          </div>
+          <div class="mt-4 text-xs uppercase tracking-widest text-white text-opacity-60">
+            Commands
+          </div>
+          <div class="mt-2 flex flex-wrap gap-2 text-xs">
+            <span class="rounded border border-white border-opacity-10 px-2 py-1 text-white text-opacity-70 font-mono">/register</span>
+            <span class="rounded border border-white border-opacity-10 px-2 py-1 text-white text-opacity-70 font-mono">/login</span>
+            <span class="rounded border border-white border-opacity-10 px-2 py-1 text-white text-opacity-70 font-mono">/logout</span>
+            <span class="rounded border border-white border-opacity-10 px-2 py-1 text-white text-opacity-70 font-mono">/passkey</span>
+            <span class="rounded border border-white border-opacity-10 px-2 py-1 text-white text-opacity-70 font-mono">/status</span>
+            <span class="rounded border border-white border-opacity-10 px-2 py-1 text-white text-opacity-70 font-mono">/me</span>
+            <span class="rounded border border-white border-opacity-10 px-2 py-1 text-white text-opacity-70 font-mono">/copy</span>
+            <span class="rounded border border-white border-opacity-10 px-2 py-1 text-white text-opacity-70 font-mono">/paste</span>
+            <span class="rounded border border-white border-opacity-10 px-2 py-1 text-white text-opacity-70 font-mono">/clear</span>
+            <span class="rounded border border-white border-opacity-10 px-2 py-1 text-white text-opacity-70 font-mono">/help</span>
+          </div>
+        </div>
       </div>
     </div>
     <canvas id="gesture-canvas" class="fixed inset-0 w-full h-full pointer-events-none" style="z-index: 100;"></canvas>
@@ -106,6 +281,23 @@
         el._t = setTimeout(() => el.classList.add("hidden"), ms);
       }
 
+      function toastAuthFailure(res) {
+        const code = res && typeof res.status === "number" ? res.status : 0;
+        if (code === 401) {
+          toast("bad creds");
+          return;
+        }
+        if (code === 403) {
+          toast("verify email");
+          return;
+        }
+        if (code === 429) {
+          toast("rate limited");
+          return;
+        }
+        toast("fail");
+      }
+
       const uploadProgressEl = document.getElementById("upload-progress");
       const uploadProgressBar = document.getElementById("upload-progress-bar");
       const uploadProgressLabel = document.getElementById(
@@ -125,7 +317,8 @@
         uploadProgressEl.classList.add("hidden");
       }
 
-      const CHUNK_SIZE = 1024 * 1024;
+      const CHUNK_SIZE = 8 * 1024 * 1024;
+      const MAX_PARALLEL_CHUNKS = 4;
       const uploadToggle = document.getElementById("upload-toggle");
       let uploadPaused = false;
       let uploadInProgress = false;
@@ -157,6 +350,28 @@
           };
           tick();
         });
+      }
+
+      async function retry(action, attempts = 4, baseDelayMs = 400) {
+        let delayMs = baseDelayMs;
+        for (let attempt = 0; attempt < attempts; attempt++) {
+          try {
+            return await action();
+          } catch (_) {
+            if (attempt === attempts - 1) throw _;
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+            delayMs *= 2;
+          }
+        }
+        throw new Error("retry failed");
+      }
+
+      async function safeJson(res) {
+        try {
+          return await res.json();
+        } catch (_) {
+          return null;
+        }
       }
 
       function fileUploadKey(file) {
@@ -285,56 +500,150 @@
         return res;
       }
 
+      const modeLabel = document.getElementById("mode-label");
+      const accountLabel = document.getElementById("account-label");
+      const actionSheet = document.getElementById("action-sheet");
+      const actionAccount = document.getElementById("action-account");
+      const helpSheet = document.getElementById("help-sheet");
+      const openActionsBtn = document.getElementById("open-actions");
+      const openActionsLabelBtn = document.getElementById("open-actions-label");
+
+      let authState = { authenticated: false, email: "" };
+
+      function toggleAction(name, visible) {
+        if (!actionSheet) return;
+        const btn = actionSheet.querySelector(`[data-action="${name}"]`);
+        if (!btn) return;
+        btn.classList.toggle("hidden", !visible);
+      }
+
+      function updateAuthUI(data) {
+        authState = {
+          authenticated: !!(data && data.authenticated),
+          email: data && data.email ? data.email : "",
+        };
+        if (modeLabel) {
+          modeLabel.textContent = authState.authenticated ? "private" : "public";
+        }
+        if (accountLabel) {
+          accountLabel.textContent = authState.authenticated ? authState.email : "";
+        }
+        if (actionAccount) {
+          actionAccount.textContent = authState.authenticated
+            ? authState.email
+            : "public";
+        }
+        toggleAction("login", !authState.authenticated);
+        toggleAction("register", !authState.authenticated);
+        toggleAction("logout", authState.authenticated);
+        toggleAction("passkey", authState.authenticated);
+      }
+
       async function refreshMode() {
         try {
-          await fetch("/api/auth/me/", { method: "GET" });
+          const res = await fetch("/api/auth/me/", { method: "GET" });
+          const data = await res.json();
+          updateAuthUI(data);
         } catch (_) {}
       }
 
-      function promptPassword(message) {
+      function promptField({
+        title,
+        type = "text",
+        placeholder = "",
+        inputMode = "",
+        autoComplete = "",
+      }) {
         return new Promise((resolve) => {
           const modal = document.createElement("div");
           modal.className =
-            "fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50";
-          modal.innerHTML = `
-                    <div class="bg-gray-800 p-6 rounded shadow-lg flex flex-col gap-4 w-80">
-                        <label class="text-white text-sm font-bold">${message}</label>
-                        <input type="password" id="modal-input" class="p-2 bg-gray-700 text-white rounded outline-none focus:ring-2 focus:ring-blue-500" autofocus>
-                        <div class="flex justify-end gap-2">
-                            <button id="modal-cancel" class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-500">Cancel</button>
-                            <button id="modal-ok" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500">OK</button>
-                        </div>
-                    </div>
-                `;
-          document.body.appendChild(modal);
+            "fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-90 p-4";
+          modal.setAttribute("role", "dialog");
+          modal.setAttribute("aria-modal", "true");
 
-          const input = modal.querySelector("#modal-input");
-          const okBtn = modal.querySelector("#modal-ok");
-          const cancelBtn = modal.querySelector("#modal-cancel");
+          const panel = document.createElement("div");
+          panel.className = "dshare-glass w-full max-w-xs rounded-lg p-4";
+
+          const label = document.createElement("div");
+          label.className =
+            "text-xs uppercase tracking-widest text-white text-opacity-70";
+          label.textContent = title || "";
+
+          const input = document.createElement("input");
+          input.type = type || "text";
+          input.placeholder = placeholder || "";
+          input.className =
+            "mt-3 w-full rounded border border-white border-opacity-10 bg-black bg-opacity-40 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-white focus:ring-opacity-20";
+          if (inputMode) input.inputMode = inputMode;
+          if (autoComplete) input.autocomplete = autoComplete;
+          input.autocapitalize = "none";
+          input.spellcheck = false;
+
+          const actions = document.createElement("div");
+          actions.className = "mt-4 flex justify-end gap-2";
+
+          const cancelBtn = document.createElement("button");
+          cancelBtn.type = "button";
+          cancelBtn.className =
+            "rounded border border-white border-opacity-20 px-3 py-2 text-xs uppercase tracking-widest text-white text-opacity-70 hover:bg-white hover:bg-opacity-5";
+          cancelBtn.textContent = "Cancel";
+
+          const okBtn = document.createElement("button");
+          okBtn.type = "button";
+          okBtn.className =
+            "rounded border border-white border-opacity-20 px-3 py-2 text-xs uppercase tracking-widest text-white hover:bg-white hover:bg-opacity-10";
+          okBtn.textContent = "OK";
+
+          actions.appendChild(cancelBtn);
+          actions.appendChild(okBtn);
+          panel.appendChild(label);
+          panel.appendChild(input);
+          panel.appendChild(actions);
+          modal.appendChild(panel);
+          document.body.appendChild(modal);
 
           function close(val) {
             modal.remove();
             resolve(val);
           }
 
-          okBtn.onclick = () => close(input.value);
-          cancelBtn.onclick = () => close(null);
-          input.onkeydown = (e) => {
+          okBtn.addEventListener("click", () => close(input.value));
+          cancelBtn.addEventListener("click", () => close(null));
+          input.addEventListener("keydown", (e) => {
             if (e.key === "Enter") close(input.value);
             if (e.key === "Escape") close(null);
-          };
-
-          // Allow clicking outside to cancel
-          modal.onclick = (e) => {
+          });
+          modal.addEventListener("click", (e) => {
             if (e.target === modal) close(null);
-          };
+          });
 
           input.focus();
         });
       }
 
+      function promptPassword(message, opts = {}) {
+        return promptField({
+          title: message,
+          type: "password",
+          placeholder: "••••••••",
+          inputMode: opts.inputMode || "",
+          autoComplete: opts.autoComplete || "current-password",
+        });
+      }
+
+      async function promptEmail(message = "Email") {
+        const value = await promptField({
+          title: message,
+          type: "email",
+          placeholder: "you@example.com",
+          inputMode: "email",
+          autoComplete: "email",
+        });
+        return value ? value.trim() : null;
+      }
+
       async function commandRegister() {
-        const email = prompt("email");
+        const email = await promptEmail("Email");
         if (!email) return;
 
         let canLogin = false;
@@ -366,16 +675,22 @@
             await refreshMode();
             return;
           }
-          toast("fail");
+          toastAuthFailure(res);
           return;
         }
 
-        const password = await promptPassword("Create password");
+        const password = await promptPassword("Create password", {
+          autoComplete: "new-password",
+        });
         if (!password) {
           toast("fail");
           return;
         }
-        const pin = (await promptPassword("Create pin (optional)")) || "";
+        const pin =
+          (await promptPassword("Create pin (optional)", {
+            inputMode: "numeric",
+            autoComplete: "off",
+          })) || "";
         const res = await postJSON("/api/auth/register/", {
           email,
           password,
@@ -422,7 +737,7 @@
           return;
         }
 
-        const email = prompt("email");
+        const email = await promptEmail("Email");
         if (!email) return;
         const secret = await promptPassword("Enter password or pin");
         if (!secret) {
@@ -439,7 +754,7 @@
           await refreshMode();
           return;
         }
-        toast("fail");
+        toastAuthFailure(res);
       }
 
       async function commandLogout() {
@@ -497,11 +812,19 @@
         }
       }
 
-      async function commandHelp() {
+      let lastHintAt = 0;
+      function showQuickHint() {
+        const now = Date.now();
+        if (now - lastHintAt < 1200) return;
+        lastHintAt = now;
         toast(
-          "draw R/L/P/S/C/M/K/H, up/down | type /register /login /logout /passkey /status /me /copy /paste /clear",
-          3500,
+          "tap logo • hold = actions\n↑ upload (divya)   ↓ download (moti)\n← copy   → paste",
+          2600,
         );
+      }
+
+      async function commandHelp() {
+        showHelpSheet();
       }
 
       async function commandStatus() {
@@ -522,7 +845,8 @@
             toast("me: public");
             return;
           }
-          const summary = `me: verified=${!!data.email_verified} passkey=${!!data.has_passkey} pw=${!!data.has_password} pin=${!!data.has_pin}`;
+          const email = data.email || "";
+          const summary = `me: ${email} verified=${!!data.email_verified} passkey=${!!data.has_passkey} pw=${!!data.has_password} pin=${!!data.has_pin}`;
           toast(summary, 3000);
         } catch (_) {
           toast("fail");
@@ -541,6 +865,76 @@
         if (cmd === "clear") return commandClear();
         if (cmd === "help" || cmd === "?") return commandHelp();
         toast("fail");
+      }
+
+      function openUploadPanel() {
+        document.getElementById("upload-section").classList.remove("hidden");
+        keyword = "";
+      }
+
+      function triggerDownload() {
+        window.location.href = "/download/";
+      }
+
+      function showHelpSheet() {
+        if (!helpSheet) return;
+        hideActionSheet();
+        helpSheet.classList.remove("hidden");
+      }
+
+      function hideHelpSheet() {
+        if (!helpSheet) return;
+        helpSheet.classList.add("hidden");
+      }
+
+      function showActionSheet() {
+        if (!actionSheet) return;
+        hideHelpSheet();
+        actionSheet.classList.remove("hidden");
+      }
+
+      function hideActionSheet() {
+        if (!actionSheet) return;
+        actionSheet.classList.add("hidden");
+      }
+
+      if (openActionsBtn) {
+        openActionsBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          showActionSheet();
+        });
+      }
+      if (openActionsLabelBtn) {
+        openActionsLabelBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          showActionSheet();
+        });
+      }
+
+      if (actionSheet) {
+        actionSheet.addEventListener("click", (e) => {
+          if (e.target === actionSheet) hideActionSheet();
+        });
+        const closeBtn = document.getElementById("action-close");
+        if (closeBtn) closeBtn.addEventListener("click", hideActionSheet);
+        actionSheet.querySelectorAll("[data-action]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const action = btn.getAttribute("data-action");
+            hideActionSheet();
+            if (!action) return;
+            if (action === "upload") return openUploadPanel();
+            if (action === "download") return triggerDownload();
+            return handleCommand(action);
+          });
+        });
+      }
+
+      if (helpSheet) {
+        helpSheet.addEventListener("click", (e) => {
+          if (e.target === helpSheet) hideHelpSheet();
+        });
+        const helpCloseBtn = document.getElementById("help-close");
+        if (helpCloseBtn) helpCloseBtn.addEventListener("click", hideHelpSheet);
       }
 
       document.addEventListener("keydown", function (e) {
@@ -648,7 +1042,7 @@
 
         const key = fileUploadKey(file);
         const cached = loadUploadSession(key);
-        const session = await startUploadSession(file, cached);
+        const session = await retry(() => startUploadSession(file, cached));
         saveUploadSession(key, {
           upload_id: session.upload_id,
           chunk_size: session.chunk_size,
@@ -664,10 +1058,7 @@
         }
         setUploadProgress((uploadedBytes / file.size) * 100);
 
-        for (let index = 0; index < totalChunks; index++) {
-          if (received.has(index)) {
-            continue;
-          }
+        async function uploadChunkAt(index) {
           await waitWhilePaused();
           const start = index * chunkSize;
           const chunk = file.slice(start, start + chunkSize);
@@ -686,15 +1077,70 @@
           if (!res.ok) {
             throw new Error("chunk upload failed");
           }
-          received.add(index);
-          uploadedBytes += chunk.size;
-          setUploadProgress((uploadedBytes / file.size) * 100);
+          return chunk.size;
         }
 
-        const complete = await postJSON("/api/upload/complete/", {
-          upload_id: session.upload_id,
-        });
-        const completeData = await complete.json();
+        const missing = [];
+        for (let index = 0; index < totalChunks; index++) {
+          if (!received.has(index)) missing.push(index);
+        }
+
+        const concurrency = Math.min(
+          Math.max(2, Math.min(MAX_PARALLEL_CHUNKS, Math.floor((navigator.hardwareConcurrency || 4) / 2))),
+          missing.length || 1,
+        );
+
+        let next = 0;
+        async function worker() {
+          while (true) {
+            const index = missing[next++];
+            if (index === undefined) return;
+            const sent = await retry(() => uploadChunkAt(index));
+            received.add(index);
+            uploadedBytes += sent;
+            setUploadProgress((uploadedBytes / file.size) * 100);
+          }
+        }
+
+        await Promise.all(Array.from({ length: concurrency }, worker));
+
+        let complete = await retry(() =>
+          postJSON("/api/upload/complete/", {
+            upload_id: session.upload_id,
+          })
+        );
+        let completeData = await safeJson(complete);
+        if (
+          !complete.ok &&
+          complete.status === 409 &&
+          completeData &&
+          Array.isArray(completeData.missing_chunks)
+        ) {
+          const missingAgain = completeData.missing_chunks.filter(
+            (idx) => typeof idx === "number",
+          );
+
+          let nextMissing = 0;
+          async function reuploadWorker() {
+            while (true) {
+              const idx = missingAgain[nextMissing++];
+              if (idx === undefined) return;
+              await retry(() => uploadChunkAt(idx));
+            }
+          }
+          await Promise.all(
+            Array.from(
+              { length: Math.min(concurrency, missingAgain.length || 1) },
+              reuploadWorker,
+            ),
+          );
+          complete = await retry(() =>
+            postJSON("/api/upload/complete/", {
+              upload_id: session.upload_id,
+            })
+          );
+          completeData = await safeJson(complete);
+        }
         if (!complete.ok || !completeData || completeData.status !== "ok") {
           throw new Error("upload complete failed");
         }
@@ -930,14 +1376,18 @@
         ctx.stroke();
       }
 
-      const DRAW_THRESHOLD = 6;
-      const GESTURE_SCORE_THRESHOLD = 0.72;
+      const DRAW_THRESHOLD = 14;
+      const LONG_PRESS_MS = 420;
       let activePointerId = null;
       let activePointerTarget = null;
       let strokeMoved = false;
+      let longPressTimer = null;
+      let longPressTriggered = false;
 
       function isInteractiveTarget(target) {
         if (!target || !target.closest) return false;
+        if (target.closest("#action-sheet")) return true;
+        if (target.closest("#help-sheet")) return true;
         return !!target.closest("button, input, textarea, select, a, label");
       }
 
@@ -945,6 +1395,7 @@
         stroke = [new Point(x, y)];
         isDrawing = true;
         strokeMoved = false;
+        longPressTriggered = false;
       }
 
       function extendStroke(x, y) {
@@ -955,9 +1406,27 @@
           const dy = y - stroke[0].y;
           if (Math.hypot(dx, dy) > DRAW_THRESHOLD) {
             strokeMoved = true;
+            clearLongPressTimer();
           }
         }
         requestAnimationFrame(drawStroke);
+      }
+
+      function startLongPressTimer() {
+        clearLongPressTimer();
+        longPressTimer = setTimeout(() => {
+          if (strokeMoved || !isDrawing) return;
+          longPressTriggered = true;
+          cancelStroke();
+          showActionSheet();
+        }, LONG_PRESS_MS);
+      }
+
+      function clearLongPressTimer() {
+        if (longPressTimer) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
       }
 
       function verticalSwipeDirection(points) {
@@ -1016,73 +1485,118 @@
         return netDy < 0 ? "UP" : "DOWN";
       }
 
+      function horizontalSwipeDirection(points) {
+        if (!points || points.length < 2) return null;
+        const minDx = Math.max(50, window.innerWidth * 0.06);
+        const maxDy = Math.max(220, window.innerHeight * 0.65);
+        let minX = points[0].x;
+        let maxX = points[0].x;
+        let minY = points[0].y;
+        let maxY = points[0].y;
+        let sumAbsDx = 0;
+        let sumAbsDy = 0;
+        let posDxSegments = 0;
+        let negDxSegments = 0;
+        for (let i = 1; i < points.length; i++) {
+          const prev = points[i - 1];
+          const curr = points[i];
+          const dx = curr.x - prev.x;
+          const dy = curr.y - prev.y;
+          sumAbsDx += Math.abs(dx);
+          sumAbsDy += Math.abs(dy);
+          if (dx > 2) {
+            posDxSegments += 1;
+          } else if (dx < -2) {
+            negDxSegments += 1;
+          }
+          if (curr.x < minX) minX = curr.x;
+          if (curr.x > maxX) maxX = curr.x;
+          if (curr.y < minY) minY = curr.y;
+          if (curr.y > maxY) maxY = curr.y;
+        }
+        const dxRange = maxX - minX;
+        const dyRange = maxY - minY;
+        if (dxRange < minDx) return null;
+        if (dyRange > maxDy) return null;
+        if (sumAbsDx <= 0) return null;
+        const dominance = sumAbsDy === 0 ? Infinity : (sumAbsDx / sumAbsDy);
+        if (dominance < 1.05) return null;
+        const totalDx = posDxSegments + negDxSegments;
+        if (totalDx > 0) {
+          const dominant = Math.max(posDxSegments, negDxSegments) / totalDx;
+          if (dominant < 0.6) return null;
+        }
+        const netDx = points[points.length - 1].x - points[0].x;
+        if (Math.abs(netDx) < dxRange * 0.35) return null;
+        return netDx < 0 ? "LEFT" : "RIGHT";
+      }
+
+      function horizontalSwipeFallback(points) {
+        if (!points || points.length < 2) return null;
+        const minDx = Math.max(40, window.innerWidth * 0.05);
+        const netDx = points[points.length - 1].x - points[0].x;
+        const netDy = points[points.length - 1].y - points[0].y;
+        if (Math.abs(netDx) < minDx) return null;
+        if (Math.abs(netDx) < Math.abs(netDy) * 1.1) return null;
+        return netDx < 0 ? "LEFT" : "RIGHT";
+      }
+
       function finishStroke() {
         if (!isDrawing) return;
         isDrawing = false;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        clearLongPressTimer();
 
         const vertical = verticalSwipeDirection(stroke);
         if (vertical === "UP") {
-          document.getElementById("upload-section").classList.remove("hidden");
-          keyword = "";
+          openUploadPanel();
           stroke = [];
           return;
         }
         if (vertical === "DOWN") {
-          window.location.href = "/download/";
+          triggerDownload();
           stroke = [];
           return;
         }
 
         const fallback = verticalSwipeFallback(stroke);
         if (fallback === "UP") {
-          document.getElementById("upload-section").classList.remove("hidden");
-          keyword = "";
+          openUploadPanel();
           stroke = [];
           return;
         }
         if (fallback === "DOWN") {
-          window.location.href = "/download/";
+          triggerDownload();
           stroke = [];
           return;
         }
 
-        if (stroke.length < 10) {
+        const horizontal = horizontalSwipeDirection(stroke);
+        if (horizontal === "LEFT") {
+          commandCopy();
+          stroke = [];
+          return;
+        }
+        if (horizontal === "RIGHT") {
+          pasteText();
           stroke = [];
           return;
         }
 
-        const result = recognizer.recognize(stroke);
+        const horizontalFallback = horizontalSwipeFallback(stroke);
+        if (horizontalFallback === "LEFT") {
+          commandCopy();
+          stroke = [];
+          return;
+        }
+        if (horizontalFallback === "RIGHT") {
+          pasteText();
+          stroke = [];
+          return;
+        }
+
         stroke = [];
-
-        if (result && result.score > GESTURE_SCORE_THRESHOLD) {
-          if (result.name === 'UP' || result.name === 'ARROW_UP') {
-            document.getElementById("upload-section").classList.remove("hidden");
-            keyword = "";
-          } else if (result.name === 'DOWN' || result.name === 'ARROW_DOWN') {
-            window.location.href = "/download/";
-          } else if (result.name === 'R') {
-            commandRegister();
-          } else if (result.name === 'L') {
-            commandLogin();
-          } else if (result.name === 'P') {
-            pasteText();
-          } else if (result.name === 'S') {
-            commandStatus();
-          } else if (result.name === 'C') {
-            commandCopy();
-          } else if (result.name === 'M') {
-            commandMe();
-          } else if (result.name === 'K') {
-            commandPasskey();
-          } else if (result.name === 'H') {
-            commandHelp();
-          } else {
-            toast("fail");
-          }
-        } else {
-          toast("fail");
-        }
+        toast("hold (or tap logo) for actions");
       }
 
       function cancelStroke() {
@@ -1090,6 +1604,7 @@
         isDrawing = false;
         stroke = [];
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        clearLongPressTimer();
       }
 
       function onPointerDown(e) {
@@ -1102,6 +1617,7 @@
           activePointerTarget.setPointerCapture(e.pointerId);
         }
         beginStroke(e.clientX, e.clientY);
+        startLongPressTimer();
       }
 
       function onPointerMove(e) {
@@ -1141,6 +1657,7 @@
         if (e.touches.length > 1) return;
         if (isInteractiveTarget(e.target)) return;
         beginStroke(e.touches[0].clientX, e.touches[0].clientY);
+        startLongPressTimer();
       }
 
       function onTouchMove(e) {
@@ -1158,9 +1675,11 @@
       }
 
       // Tap handler for help (if not clicking something else)
-      document.addEventListener('click', (e) => {
+      document.addEventListener("click", (e) => {
+        if (actionSheet && !actionSheet.classList.contains("hidden")) return;
+        if (helpSheet && !helpSheet.classList.contains("hidden")) return;
         if (isInteractiveTarget(e.target)) return;
-        commandHelp();
+        showQuickHint();
       });
 
       if ("PointerEvent" in window) {

@@ -1,9 +1,11 @@
 import json
+import tempfile
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password
 from django.core import mail
 from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
 from django.test import TestCase
 from django.test import override_settings
@@ -65,6 +67,167 @@ class ShareFlowsTests(TestCase):
         )
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()["status"], "ok")
+
+
+class ChunkedUploadTests(TestCase):
+    def setUp(self):
+        super().setUp()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+
+    def _storage_settings(self):
+        return {
+            "MEDIA_ROOT": self._tmp.name,
+            "MEDIA_URL": "/media/",
+            "STORAGES": {
+                "default": {
+                    "BACKEND": "django.core.files.storage.FileSystemStorage",
+                    "OPTIONS": {"location": self._tmp.name, "base_url": "/media/"},
+                },
+                "staticfiles": {
+                    "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+                },
+            },
+            "DSHARE_UPLOAD_MIN_CHUNK_BYTES": 1,
+            "DSHARE_UPLOAD_MAX_CHUNK_BYTES": 1024 * 1024,
+        }
+
+    def test_chunked_upload_scans_disk_for_resume_and_completes(self):
+        content = b"abcdefghijklmnopqrstuvwxyz"
+        chunk_size = 10
+
+        with override_settings(**self._storage_settings()):
+            start = self.client.post(
+                reverse("api_upload_start"),
+                data=json.dumps(
+                    {
+                        "filename": "test.bin",
+                        "size": len(content),
+                        "chunk_size": chunk_size,
+                        "content_type": "application/octet-stream",
+                    }
+                ),
+                content_type="application/json",
+            )
+            self.assertEqual(start.status_code, 200)
+            start_data = start.json()
+            self.assertEqual(start_data["status"], "ok")
+            upload_id = start_data["upload_id"]
+            self.assertEqual(start_data["chunk_size"], chunk_size)
+            self.assertEqual(start_data["total_chunks"], 3)
+            self.assertEqual(start_data["received_chunks"], [])
+
+            # Upload out of order (v2 writes to a single file at offsets).
+            for index in (2, 0):
+                offset = index * chunk_size
+                part = content[offset : offset + chunk_size]
+                if index == 2:
+                    self.assertEqual(len(part), 6)
+                res = self.client.post(
+                    reverse("api_upload_chunk"),
+                    data={
+                        "upload_id": upload_id,
+                        "index": str(index),
+                        "chunk": SimpleUploadedFile(
+                            "test.bin", part, content_type="application/octet-stream"
+                        ),
+                    },
+                )
+                self.assertEqual(res.status_code, 200)
+                self.assertEqual(res.json()["status"], "ok")
+
+            # Start again (resume) should scan disk markers and report received chunks.
+            resume = self.client.post(
+                reverse("api_upload_start"),
+                data=json.dumps(
+                    {
+                        "filename": "test.bin",
+                        "size": len(content),
+                        "chunk_size": chunk_size,
+                        "content_type": "application/octet-stream",
+                        "upload_id": upload_id,
+                    }
+                ),
+                content_type="application/json",
+            )
+            self.assertEqual(resume.status_code, 200)
+            resume_data = resume.json()
+            self.assertEqual(resume_data["status"], "ok")
+            self.assertEqual(resume_data["upload_id"], upload_id)
+            self.assertEqual(resume_data["received_chunks"], [0, 2])
+
+            # Upload the missing middle chunk.
+            index = 1
+            offset = index * chunk_size
+            part = content[offset : offset + chunk_size]
+            self.assertEqual(len(part), 10)
+            res = self.client.post(
+                reverse("api_upload_chunk"),
+                data={
+                    "upload_id": upload_id,
+                    "index": str(index),
+                    "chunk": SimpleUploadedFile(
+                        "test.bin", part, content_type="application/octet-stream"
+                    ),
+                },
+            )
+            self.assertEqual(res.status_code, 200)
+
+            complete = self.client.post(
+                reverse("api_upload_complete"),
+                data=json.dumps({"upload_id": upload_id}),
+                content_type="application/json",
+            )
+            self.assertEqual(complete.status_code, 200)
+            self.assertEqual(complete.json()["status"], "ok")
+
+            share = PublicShareState.objects.get(pk=1)
+            self.assertIsNotNone(share.file)
+            with share.file.open("rb") as handle:
+                self.assertEqual(handle.read(), content)
+
+    def test_chunked_upload_complete_reports_missing_chunks(self):
+        content = b"abcdefghijklmnopqrstuvwxyz"
+        chunk_size = 10
+
+        with override_settings(**self._storage_settings()):
+            start = self.client.post(
+                reverse("api_upload_start"),
+                data=json.dumps(
+                    {
+                        "filename": "test.bin",
+                        "size": len(content),
+                        "chunk_size": chunk_size,
+                        "content_type": "application/octet-stream",
+                    }
+                ),
+                content_type="application/json",
+            )
+            upload_id = start.json()["upload_id"]
+
+            # Upload only the first chunk.
+            part0 = content[:chunk_size]
+            res = self.client.post(
+                reverse("api_upload_chunk"),
+                data={
+                    "upload_id": upload_id,
+                    "index": "0",
+                    "chunk": SimpleUploadedFile(
+                        "test.bin", part0, content_type="application/octet-stream"
+                    ),
+                },
+            )
+            self.assertEqual(res.status_code, 200)
+
+            complete = self.client.post(
+                reverse("api_upload_complete"),
+                data=json.dumps({"upload_id": upload_id}),
+                content_type="application/json",
+            )
+            self.assertEqual(complete.status_code, 409)
+            data = complete.json()
+            self.assertEqual(data["status"], "fail")
+            self.assertEqual(data["missing_chunks"], [1, 2])
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")

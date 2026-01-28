@@ -165,6 +165,8 @@ class DshareApi {
         headers: _csrfHeaders(csrf),
         contentType: "multipart/form-data",
         responseType: ResponseType.json,
+        sendTimeout: const Duration(minutes: 5),
+        receiveTimeout: const Duration(minutes: 5),
       ),
     );
   }
