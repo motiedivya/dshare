@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dshare-cli"
+version = "0.1.0"
+description = "Cross-platform command-line client for dShare — type-to-share files and text between devices."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [{ name = "Divyesh Vishwakarma" }]
+keywords = ["dshare", "file-sharing", "clipboard", "cli"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+]
+dependencies = ["requests>=2.31,<3"]
+
+[project.urls]
+Homepage = "https://docs.dshare.me"
+Repository = "https://github.com/motiedivya/dshare"
+
+[project.scripts]
+dshare = "dshare_cli.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dshare_cli"]

@@ -19,6 +19,7 @@ This repo also adds optional accounts (one-time email verification + 30‑day se
 
 - [What this is](#what-this-is)
 - [How it feels to use](#how-it-feels-to-use)
+- [Command-line client](#command-line-client)
 - [Commands](#commands)
 - [Public vs Private mode](#public-vs-private-mode)
 - [Security model (read this)](#security-model-read-this)
@@ -67,6 +68,22 @@ If you ever get logged out (new browser/device), type `/login`:
 
 - tries passkey first (if you added one)
 - falls back to email + password/PIN
+
+---
+
+## Command-line client
+
+Prefer a terminal? [`cli/`](cli/) has `dshare-cli`, a cross-platform (Linux/macOS/Windows)
+CLI for the same public `divya`/`moti` flow:
+
+```bash
+pipx install "git+https://github.com/motiedivya/dshare.git#subdirectory=cli"
+dshare config https://your-dshare-host.example.com
+dshare send report.pdf     # divya
+dshare receive             # moti
+```
+
+See [cli/README.md](cli/README.md) for full usage.
 
 ---
 
