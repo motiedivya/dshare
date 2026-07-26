@@ -14,6 +14,7 @@ from pathlib import Path
 
 _ENV_SERVER = "DSHARE_SERVER"
 _CONFIG_FILENAME = "config.json"
+DEFAULT_SERVER = "https://dshare.me"
 
 
 def config_dir() -> Path:
@@ -49,8 +50,8 @@ def save_config(data: dict) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
-def get_server(explicit: str | None = None) -> str | None:
-    """Resolve the server URL: --server flag > env var > saved config."""
+def get_server(explicit: str | None = None) -> str:
+    """Resolve the server URL: --server flag > env var > saved config > default."""
     if explicit:
         return explicit.rstrip("/")
     env = os.environ.get(_ENV_SERVER)
@@ -59,7 +60,7 @@ def get_server(explicit: str | None = None) -> str | None:
     saved = load_config().get("server")
     if saved:
         return str(saved).rstrip("/")
-    return None
+    return DEFAULT_SERVER
 
 
 def set_server(url: str) -> Path:

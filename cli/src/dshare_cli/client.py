@@ -21,6 +21,16 @@ class DShareError(Exception):
     """Raised for any user-facing dShare CLI/API failure."""
 
 
+def _error_detail(resp: requests.Response) -> str:
+    """Short, single-line excerpt of a failed response body, for diagnostics."""
+    text = (resp.text or "").strip().replace("\n", " ")
+    if not text:
+        return ""
+    if len(text) > 200:
+        text = text[:200] + "…"
+    return f": {text}"
+
+
 @dataclass
 class DownloadResult:
     kind: str  # "file" | "text" | "empty"
@@ -105,7 +115,7 @@ class DShareClient:
         if resp.status_code == 429:
             raise DShareError("Upload rejected: rate limit hit, try again shortly.")
         if resp.status_code != 200:
-            raise DShareError(f"Upload failed (HTTP {resp.status_code}).")
+            raise DShareError(f"Upload failed (HTTP {resp.status_code}){_error_detail(resp)}")
         try:
             if resp.json().get("status") != "ok":
                 raise DShareError("Upload failed: server did not confirm success.")
@@ -115,7 +125,7 @@ class DShareClient:
     def download(self) -> DownloadResult:
         resp = self._request("GET", "/download/")
         if resp.status_code != 200:
-            raise DShareError(f"Download failed (HTTP {resp.status_code}).")
+            raise DShareError(f"Download failed (HTTP {resp.status_code}){_error_detail(resp)}")
 
         if resp.history:
             # Server issued a redirect to the stored file's media URL.
@@ -140,4 +150,4 @@ class DShareClient:
         if resp.status_code == 429:
             raise DShareError("Clear rejected: rate limit hit, try again shortly.")
         if resp.status_code != 200:
-            raise DShareError(f"Clear failed (HTTP {resp.status_code}).")
+            raise DShareError(f"Clear failed (HTTP {resp.status_code}){_error_detail(resp)}")

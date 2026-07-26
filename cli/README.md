@@ -58,7 +58,9 @@ Publisher setup this depends on.
 
 ## Setup
 
-Point the CLI at your dShare server once:
+By default the CLI talks to `https://dshare.me`, so `dshare send`/`receive`
+work with no setup at all. If you're self-hosting your own dShare instance,
+point the CLI at it once:
 
 ```bash
 dshare config https://your-dshare-host.example.com

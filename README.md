@@ -78,12 +78,12 @@ CLI for the same public `divya`/`moti` flow:
 
 ```bash
 pipx install dshare-cli
-dshare config https://your-dshare-host.example.com
 dshare send report.pdf     # divya
 dshare receive             # moti
 ```
 
-See [cli/README.md](cli/README.md) for full usage.
+It talks to `https://dshare.me` by default — run `dshare config https://your-own-host`
+first if you're self-hosting. See [cli/README.md](cli/README.md) for full usage.
 
 ---
 

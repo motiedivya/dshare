@@ -8,6 +8,7 @@ Linux, macOS, and Windows.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -29,11 +30,6 @@ def _info(message: str) -> None:
 
 def _resolve_client(args: argparse.Namespace) -> DShareClient:
     server = config.get_server(getattr(args, "server", None))
-    if not server:
-        raise DShareError(
-            "no server configured. Run 'dshare config https://your-dshare-host' "
-            "or set the DSHARE_SERVER environment variable."
-        )
     return DShareClient(server, timeout=args.timeout, verify=not args.insecure)
 
 
@@ -114,11 +110,6 @@ def _cmd_clear(args: argparse.Namespace) -> int:
 
 def _cmd_status(args: argparse.Namespace) -> int:
     server = config.get_server(getattr(args, "server", None))
-    if not server:
-        _info("No server configured.")
-        _info("Run 'dshare config https://your-dshare-host' or set DSHARE_SERVER.")
-        return EXIT_ERROR
-
     print(f"Server: {server}")
     client = DShareClient(server, timeout=args.timeout, verify=not args.insecure)
     try:
@@ -137,13 +128,15 @@ def _cmd_config(args: argparse.Namespace) -> int:
         print(f"Saved server '{args.server_url.rstrip('/')}' to {path}")
         return EXIT_OK
 
-    current = config.get_server()
-    if current:
-        print(current)
+    env = os.environ.get("DSHARE_SERVER")
+    saved = config.load_config().get("server")
+    if env:
+        print(f"{env.rstrip('/')} (from DSHARE_SERVER)")
+    elif saved:
+        print(saved)
     else:
-        _info("No server configured.")
-        _info("Usage: dshare config https://your-dshare-host")
-        return EXIT_ERROR
+        print(f"{config.DEFAULT_SERVER} (default — nothing configured yet)")
+        _info("Run 'dshare config https://your-dshare-host' to point at your own server.")
     return EXIT_OK
 
 
