@@ -14,13 +14,19 @@ Requires Python 3.9+ (any OS). [pipx](https://pipx.pypa.io/) is recommended
 since it keeps the CLI's dependencies isolated:
 
 ```bash
-pipx install "git+https://github.com/motiedivya/dshare.git#subdirectory=cli"
+pipx install dshare-cli
 ```
 
 Or with plain pip:
 
 ```bash
-pip install "git+https://github.com/motiedivya/dshare.git#subdirectory=cli"
+pip install dshare-cli
+```
+
+Until the first release is published, install straight from GitHub instead:
+
+```bash
+pipx install "git+https://github.com/motiedivya/dshare.git#subdirectory=cli"
 ```
 
 For local development (from a clone of this repo):
@@ -30,10 +36,25 @@ cd cli
 pip install -e .
 ```
 
-All three commands work identically on Windows (PowerShell/cmd), macOS, and
+All of these work identically on Windows (PowerShell/cmd), macOS, and
 Linux — the CLI has no shell scripts and no OS-specific setup steps.
 
-Once published to PyPI, the same command becomes `pipx install dshare-cli`.
+## Releasing (maintainers)
+
+Publishing to PyPI is fully automated via GitHub Actions + PyPI Trusted
+Publishing (OIDC) — no API tokens stored anywhere. The version number is
+derived from the git tag itself (via `hatch-vcs`), so there's nothing to
+bump by hand. To ship a release:
+
+```bash
+git tag cli-v0.1.0
+git push origin cli-v0.1.0
+```
+
+That triggers [`.github/workflows/publish-cli.yml`](../.github/workflows/publish-cli.yml),
+which builds the package and publishes `dshare-cli==0.1.0` to PyPI. See that
+workflow's comments / the main repo README for the one-time PyPI Trusted
+Publisher setup this depends on.
 
 ## Setup
 

@@ -77,7 +77,7 @@ Prefer a terminal? [`cli/`](cli/) has `dshare-cli`, a cross-platform (Linux/macO
 CLI for the same public `divya`/`moti` flow:
 
 ```bash
-pipx install "git+https://github.com/motiedivya/dshare.git#subdirectory=cli"
+pipx install dshare-cli
 dshare config https://your-dshare-host.example.com
 dshare send report.pdf     # divya
 dshare receive             # moti

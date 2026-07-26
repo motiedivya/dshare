@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "dshare-cli"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Cross-platform command-line client for dShare — type-to-share files and text between devices."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -29,3 +29,10 @@ dshare = "dshare_cli.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dshare_cli"]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+root = ".."
+git_describe_command = ["git", "describe", "--dirty", "--tags", "--long", "--match", "cli-v*"]
