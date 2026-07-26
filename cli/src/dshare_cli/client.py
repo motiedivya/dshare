@@ -36,6 +36,11 @@ class DShareClient:
         self.session = requests.Session()
         self.session.verify = verify
         self.session.headers["User-Agent"] = "dshare-cli"
+        # Django's CSRF middleware requires Origin/Referer on HTTPS POSTs (it
+        # only skips that check over plain HTTP) — without these, every POST
+        # gets rejected with 403 on any HTTPS-hosted dShare server.
+        self.session.headers["Origin"] = self.server
+        self.session.headers["Referer"] = f"{self.server}/"
 
     def _request(self, method: str, path: str, **kwargs):
         url = f"{self.server}{path}"
