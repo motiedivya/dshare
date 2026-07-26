@@ -271,7 +271,26 @@ If you deploy DShare publicly, do these first:
   - `SESSION_COOKIE_SECURE=True`
   - `CSRF_COOKIE_SECURE=True`
   - `SESSION_COOKIE_SAMESITE='Lax'` (or `'Strict'` depending on your needs)
-- configure static files for Django (`collectstatic`) if you serve your own assets
+- run `python manage.py collectstatic` before serving in production (the
+  `Procfile` does this automatically on every boot for Procfile-based
+  platforms like Railway/Heroku; other platforms need it run manually — see
+  [wiki/Deployment.md](wiki/Deployment.md))
 - decide whether you truly want public mode enabled
 
 Also consider putting DShare behind a reverse proxy (nginx) and/or Cloudflare for rate limiting.
+
+---
+
+## GitHub Pages & Wiki
+
+- **Docs site** ([docs.dshare.me](https://docs.dshare.me)): GitHub Pages is
+  configured to build straight from [`docs/`](docs/) on `main`, so editing
+  those files and merging publishes automatically — end-user quick start,
+  [configuration reference](docs/configuration.md), [security notes](docs/security.md),
+  and the [CLI](docs/cli.md).
+- **Wiki** ([`wiki/`](wiki/)): source-of-truth copies of the GitHub repo Wiki
+  pages, kept here for review/PRs. There's no auto-sync (yet) — after editing,
+  copy the changed page(s) into the repo's Wiki tab by hand. Pages: [Commands](wiki/Commands.md),
+  [Security](wiki/Security.md), [Email](wiki/Email.md), [Passkeys](wiki/Passkeys.md),
+  [Deployment](wiki/Deployment.md), [Troubleshooting](wiki/Troubleshooting.md),
+  and [CLI](wiki/CLI.md).

@@ -25,6 +25,20 @@ Check server logs: usually SMTP auth/TLS/port issues.
 - Locally use `http://localhost:8000/` and set `DSHARE_RP_ID=localhost`.
 - Don’t use `127.0.0.1` for passkeys.
 
+## Building your own API client and every POST gets 403
+
+Django's CSRF middleware requires an `Origin`/`Referer` header on HTTPS POST
+requests (it only skips that check over plain HTTP, which is why it's easy
+to miss in local testing). To POST to `/upload/`, `/api/share/clear/`, etc.
+from a script:
+
+1. `GET /` first and keep the `csrftoken` cookie (set via a session/cookie jar).
+2. Send it back as an `X-CSRFToken` header on POSTs.
+3. Also set `Origin`/`Referer` to your target server's own URL.
+
+[`dshare-cli`](CLI) does all three — its [`client.py`](https://github.com/motiedivya/dshare/blob/main/cli/src/dshare_cli/client.py)
+is a working reference if you're implementing this yourself.
+
 ## “Public mode is getting abused”
 
 If you must stay public:

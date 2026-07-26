@@ -8,6 +8,12 @@ It talks to your dShare server's existing public endpoints (`/upload/`,
 `/download/`, `/api/share/clear/`) — no server changes required, and it
 doesn't touch private/login-based sharing.
 
+> **Heads up:** with no setup, `dshare send`/`receive` use the shared public
+> slot on `https://dshare.me` — the same one anonymous visitors to the site
+> get. Anything you send there is visible to (and overwritable by) anyone.
+> Run `dshare config https://your-own-host` to use your own private
+> deployment instead. See [Setup](#setup).
+
 ## Install
 
 Requires Python 3.9+ (any OS). [pipx](https://pipx.pypa.io/) is recommended
@@ -23,12 +29,6 @@ Or with plain pip:
 pip install dshare-cli
 ```
 
-Until the first release is published, install straight from GitHub instead:
-
-```bash
-pipx install "git+https://github.com/motiedivya/dshare.git#subdirectory=cli"
-```
-
 For local development (from a clone of this repo):
 
 ```bash
@@ -38,23 +38,6 @@ pip install -e .
 
 All of these work identically on Windows (PowerShell/cmd), macOS, and
 Linux — the CLI has no shell scripts and no OS-specific setup steps.
-
-## Releasing (maintainers)
-
-Publishing to PyPI is fully automated via GitHub Actions + PyPI Trusted
-Publishing (OIDC) — no API tokens stored anywhere. The version number is
-derived from the git tag itself (via `hatch-vcs`), so there's nothing to
-bump by hand. To ship a release:
-
-```bash
-git tag cli-v0.1.0
-git push origin cli-v0.1.0
-```
-
-That triggers [`.github/workflows/publish-cli.yml`](../.github/workflows/publish-cli.yml),
-which builds the package and publishes `dshare-cli==0.1.0` to PyPI. See that
-workflow's comments / the main repo README for the one-time PyPI Trusted
-Publisher setup this depends on.
 
 ## Setup
 
@@ -124,3 +107,23 @@ dshare moti
   the web UI get) — it does not log in or touch private per-user slots.
 - Self-signed/local server? Pass `--insecure` to skip TLS verification.
 - Exit codes: `0` success, `1` error, `2` the slot was empty on `receive`.
+- On failure, error messages include a short excerpt of the server's response
+  body (not just the HTTP status) to make unexpected errors diagnosable.
+
+## Releasing (maintainers)
+
+Publishing to PyPI is fully automated via GitHub Actions + PyPI Trusted
+Publishing (OIDC) — no API tokens stored anywhere. The version number is
+derived from the git tag itself (via `hatch-vcs`), so there's nothing to
+bump by hand. To ship a release:
+
+```bash
+git tag cli-vX.Y.Z   # e.g. cli-v0.1.3
+git push origin cli-vX.Y.Z
+```
+
+That triggers [`.github/workflows/publish-cli.yml`](../.github/workflows/publish-cli.yml),
+which builds the package and publishes `dshare-cli==X.Y.Z` to PyPI. The `pypi`
+GitHub Environment has no required-reviewer gate, so a tag push publishes
+immediately — double-check the tag before pushing it. Current releases:
+[PyPI](https://pypi.org/project/dshare-cli/) · [git tags](https://github.com/motiedivya/dshare/tags?q=cli-v).

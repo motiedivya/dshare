@@ -7,6 +7,9 @@ DShare is a keyboard-first sharing tool:
 
 Those two keywords are global aliases and intended to never change.
 
+Prefer a terminal? `pipx install dshare-cli` gives you `dshare send`/`dshare receive` —
+see [CLI](CLI).
+
 ## Quick start
 
 ### Public (guest)
@@ -45,6 +48,7 @@ There is no built-in history UI by design.
 - Docs: https://docs.dshare.me
 
 - `Commands` — full command reference
+- `CLI` — cross-platform command-line client
 - `Security` — threat model and public mode risks
 - `Email` — Resend SMTP setup
 - `Passkeys` — WebAuthn requirements and troubleshooting

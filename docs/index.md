@@ -29,6 +29,11 @@ Type-to-share <span class="redacted">TOP SECRET</span> files and clipboard text.
 
 Optional: type `/passkey` once to add a passkey; `/login` prefers passkeys automatically.
 
+## Command-line client
+
+Prefer a terminal? `pipx install dshare-cli` gives you `dshare send`/`dshare receive` —
+same flow, no browser needed. Talks to `https://dshare.me` by default. See [CLI](cli).
+
 ## Commands
 
 - `divya` — upload
@@ -48,3 +53,9 @@ Optional: type `/passkey` once to add a passkey; `/login` prefers passkeys autom
 Public mode is <span class="redacted">WORLD-WRITABLE</span>. If you deploy DShare to the open internet, expect abuse unless you add external controls (WAF, rate limiting, allowlists, VPN).
 
 Read the repo `README.md` for the full security model, configuration, and production checklist.
+
+## More docs
+
+- [CLI](cli) — command-line client
+- [Configuration](configuration) — env vars, retention, passkeys
+- [Security](security) — public mode risks and mitigations
