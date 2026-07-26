@@ -274,3 +274,9 @@ DSHARE_PUBLIC_UPLOAD_LIMIT = int(os.getenv("DSHARE_PUBLIC_UPLOAD_LIMIT", "100"))
 DSHARE_PUBLIC_CLEAR_LIMIT = int(os.getenv("DSHARE_PUBLIC_CLEAR_LIMIT", "100"))
 DSHARE_RP_NAME = os.getenv("DSHARE_RP_NAME", "DShare")
 DSHARE_RP_ID = os.getenv("DSHARE_RP_ID", "")
+
+# Optional: best-effort action logging to a private ntfy topic. No-ops
+# unless all three are set. See share/ntfy_log.py.
+DSHARE_NTFY_LOG_URL = os.getenv("DSHARE_NTFY_LOG_URL", "")
+DSHARE_NTFY_LOG_USER = os.getenv("DSHARE_NTFY_LOG_USER", "")
+DSHARE_NTFY_LOG_PASSWORD = os.getenv("DSHARE_NTFY_LOG_PASSWORD", "")

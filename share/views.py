@@ -53,6 +53,7 @@ from .models import (
     UserShareState,
     WebAuthnCredential,
 )
+from .ntfy_log import log_action
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -341,6 +342,7 @@ def api_auth_register(request: HttpRequest) -> JsonResponse:
             payload["detail"] = str(exc)[:500]
         return JsonResponse(payload, status=502)
 
+    log_action(request, "register", email=email)
     return JsonResponse({"status": "ok"})
 
 
@@ -413,6 +415,7 @@ def api_auth_password_login(request: HttpRequest) -> JsonResponse:
     user = User.objects.filter(username=email).first()
     if user is None or not user.is_active:
         cache.set(throttle_key, attempts + 1, timeout=60 * 10)
+        log_action(request, "login", email=email, status="fail", reason="no_such_account")
         return JsonResponse({"status": "fail"}, status=401)
 
     auth_user = authenticate(request, username=email, password=secret)
@@ -420,16 +423,19 @@ def api_auth_password_login(request: HttpRequest) -> JsonResponse:
         profile = _get_or_create_profile(user)
         if not profile.pin_hash or not check_password(secret, profile.pin_hash):
             cache.set(throttle_key, attempts + 1, timeout=60 * 10)
+            log_action(request, "login", email=email, status="fail", reason="bad_credentials")
             return JsonResponse({"status": "fail"}, status=401)
         auth_user = user
 
     profile = _get_or_create_profile(auth_user)
     if profile.email_verified_at is None:
         cache.set(throttle_key, attempts + 1, timeout=60 * 10)
+        log_action(request, "login", email=email, status="fail", reason="unverified")
         return JsonResponse({"status": "fail"}, status=403)
 
     login(request, auth_user)
     cache.delete(throttle_key)
+    log_action(request, "login", status="ok", method="password_or_pin")
     return JsonResponse({"status": "ok"})
 
 
@@ -464,7 +470,11 @@ def api_auth_set_credentials(request: HttpRequest) -> JsonResponse:
 
 @require_POST
 def api_auth_logout(request: HttpRequest) -> JsonResponse:
+    email = None
+    if request.user.is_authenticated:
+        email = request.user.email or request.user.username
     logout(request)
+    log_action(request, "logout", email=email)
     return JsonResponse({"status": "ok"})
 
 
@@ -550,6 +560,7 @@ def api_webauthn_register_complete(request: HttpRequest) -> JsonResponse:
             credential_id=credential_id,
             credential_data=credential_data,
         )
+    log_action(request, "passkey_register")
     return JsonResponse({"status": "ok"})
 
 
@@ -607,6 +618,7 @@ def api_webauthn_auth_complete(request: HttpRequest) -> JsonResponse:
     )
     credential.last_used_at = timezone.now()
     credential.save(update_fields=["last_used_at"])
+    log_action(request, "login", status="ok", method="passkey")
     return JsonResponse({"status": "ok"})
 
 
@@ -1092,6 +1104,13 @@ def api_upload_complete(request: HttpRequest) -> JsonResponse:
             _delete_upload_session_files(session)
             session.delete()
 
+    log_action(
+        request,
+        "upload",
+        method="chunked",
+        filename=session.filename,
+        size=session.total_size,
+    )
     return JsonResponse({"status": "ok"})
 
 
@@ -1134,6 +1153,13 @@ def upload_view(request: HttpRequest) -> JsonResponse:
         share.file = uploaded_file
         share.text = None
         share.save(update_fields=["file", "text", "updated_at"])
+        log_action(
+            request,
+            "upload",
+            method="simple",
+            filename=uploaded_file.name,
+            size=_file_size(uploaded_file),
+        )
         return JsonResponse({"status": "ok"})
 
     text = request.POST.get("text")
@@ -1143,6 +1169,7 @@ def upload_view(request: HttpRequest) -> JsonResponse:
             _delete_field_file(share.file)
         share.file = None
         share.save(update_fields=["file", "text", "updated_at"])
+        log_action(request, "paste", chars=len(text))
         return JsonResponse({"status": "ok"})
 
     return JsonResponse({"status": "fail"}, status=400)
@@ -1162,11 +1189,14 @@ def download_view(request: HttpRequest) -> HttpResponse:
     _maybe_expire_share(share=share, ttl_seconds=ttl_seconds)
 
     if share.file:
+        log_action(request, "download", result="file", filename=os.path.basename(share.file.name))
         return redirect(share.file.url)
 
     if share.text:
+        log_action(request, "download", result="text")
         return HttpResponse(share.text, content_type="text/plain")
 
+    log_action(request, "download", result="empty")
     return JsonResponse({"status": "empty"})
 
 
@@ -1182,6 +1212,7 @@ def api_share_text(request: HttpRequest) -> JsonResponse:
     )
     share = _get_or_create_public_share() if is_public else _get_or_create_user_share(request.user)
     _maybe_expire_share(share=share, ttl_seconds=ttl_seconds)
+    log_action(request, "copy", result="ok" if share.text else "empty")
     return JsonResponse({"text": share.text or ""})
 
 
@@ -1202,4 +1233,5 @@ def api_share_clear(request: HttpRequest) -> JsonResponse:
     share.file = None
     share.text = None
     share.save(update_fields=["file", "text", "updated_at"])
+    log_action(request, "clear")
     return JsonResponse({"status": "ok"})

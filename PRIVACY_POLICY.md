@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Last updated: 2026-01-11
+Last updated: 2026-07-27
 
 This Privacy Policy describes how DShare ("we", "us", "our") collects, uses, and shares information when you use the DShare app and website (the "Service").
 
@@ -25,6 +25,7 @@ If you do not agree with this policy, do not use the Service.
 
 - Basic device and browser information (for example, IP address, user agent, and timestamps) in server logs.
 - Cookies and similar technologies for session and CSRF protection.
+- If enabled by the operator, a best-effort action/audit log (which action was taken — e.g. upload, download, clear, register, login — plus IP, user agent, timestamp, and, for logged-in actions, your account email) sent to a private, operator-only alerting channel. This never includes the content of uploaded files or shared text, and never includes passwords, PINs, or security tokens. We do not perform IP-to-location lookups or share this data with any third party.
 
 ### Third‑party services
 
