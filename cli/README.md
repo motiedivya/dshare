@@ -81,6 +81,11 @@ dshare receive
   or `dshare receive | pbcopy` / `| clip` works.
 - If stdout isn't a terminal, file bytes stream straight to stdout too (like `curl`).
 
+File transfers (`send <file>` and `receive` when the slot holds a file) show a
+live `tqdm` progress bar — filename, percentage, size, and transfer rate —
+streamed to stderr so it never corrupts piped stdout output. It's automatically
+hidden when stderr isn't a terminal (redirected to a file, CI logs, etc.).
+
 Clear the slot (same as `/clear`):
 
 ```bash
@@ -109,6 +114,8 @@ dshare moti
 - Exit codes: `0` success, `1` error, `2` the slot was empty on `receive`.
 - On failure, error messages include a short excerpt of the server's response
   body (not just the HTTP status) to make unexpected errors diagnosable.
+- File uploads/downloads are streamed, not buffered fully in memory, so large
+  files don't balloon RAM usage.
 
 ## Releasing (maintainers)
 

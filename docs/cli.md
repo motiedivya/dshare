@@ -44,6 +44,9 @@ dshare status                       # configured server + reachability
 `receive` saves files to the current directory in a terminal, but streams raw bytes to
 stdout when piped — so `dshare receive > out.zip` or `dshare receive | pbcopy` both work.
 
+File transfers show a live progress bar (filename, percentage, size, rate) on stderr,
+so it never corrupts piped stdout output.
+
 `dshare divya <file>` / `dshare moti` also work, matching the site's keywords.
 
 ## Notes
@@ -51,5 +54,6 @@ stdout when piped — so `dshare receive > out.zip` or `dshare receive | pbcopy`
 - Public lane only — no login, no private per-user slots.
 - Self-signed/local server: `--insecure` skips TLS verification.
 - Exit codes: `0` success, `1` error, `2` the slot was empty on `receive`.
+- File uploads/downloads are streamed, not buffered fully in memory.
 
 Full reference: [github.com/motiedivya/dshare/tree/main/cli](https://github.com/motiedivya/dshare/tree/main/cli).

@@ -44,12 +44,16 @@ Saved to a per-OS config file. Override per-command with `--server`, or via the
 stdout when piped (like `curl`) — so `dshare receive > out.zip` or `dshare receive | pbcopy`
 both work.
 
+File transfers show a live `tqdm` progress bar (filename, percentage, size, rate) on
+stderr — never corrupts piped stdout, auto-hidden when stderr isn't a terminal.
+
 ## Notes
 
 - Only uses the **public** lane — no login, matches anonymous `divya`/`moti` on the web.
 - Self-signed/local server: pass `--insecure` to skip TLS verification.
 - Exit codes: `0` success, `1` error, `2` the slot was empty on `receive`.
 - Errors include a short excerpt of the server's response body, not just the HTTP status.
+- File uploads/downloads are streamed, not buffered fully in memory.
 
 ## Releasing (maintainers)
 

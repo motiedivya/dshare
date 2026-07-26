@@ -11,6 +11,9 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from typing import Callable, Iterator
+
+from tqdm import tqdm
 
 from . import __version__, config
 from .client import DShareClient, DShareError
@@ -26,6 +29,29 @@ def _err(message: str) -> None:
 
 def _info(message: str) -> None:
     print(message, file=sys.stderr)
+
+
+def _progress_bar(desc: str, total: int | None) -> tqdm:
+    # Progress goes to stderr (tqdm's default) so it never corrupts stdout
+    # when piping (`dshare receive | ...`); disabled outright when stderr
+    # isn't a terminal (redirected to a file, CI logs, etc.) to avoid
+    # spamming escape codes somewhere no one will watch them live.
+    return tqdm(
+        total=total,
+        unit="B",
+        unit_scale=True,
+        unit_divisor=1024,
+        desc=desc,
+        disable=not sys.stderr.isatty(),
+        leave=False,
+    )
+
+
+def _stream_to(write: Callable[[bytes], object], stream: Iterator[bytes], *, total, desc: str) -> None:
+    with _progress_bar(desc, total) as bar:
+        for chunk in stream:
+            write(chunk)
+            bar.update(len(chunk))
 
 
 def _resolve_client(args: argparse.Namespace) -> DShareClient:
@@ -48,7 +74,18 @@ def _cmd_send(args: argparse.Namespace) -> int:
         return EXIT_OK
 
     if args.file:
-        client.upload_file(args.file)
+        size = os.path.getsize(args.file)
+        seen = 0
+        with _progress_bar(os.path.basename(args.file), size) as bar:
+
+            def _progress(bytes_done: int, total_bytes) -> None:
+                nonlocal seen
+                if total_bytes is not None and total_bytes != bar.total:
+                    bar.total = total_bytes
+                bar.update(bytes_done - seen)
+                seen = bytes_done
+
+            client.upload_file(args.file, on_progress=_progress)
         _info(f"Uploaded {args.file}.")
         return EXIT_OK
 
@@ -85,18 +122,20 @@ def _cmd_receive(args: argparse.Namespace) -> int:
         return EXIT_OK
 
     # result.kind == "file"
-    content = result.content or b""
+    filename = result.filename or "dshare-download"
     if args.output:
         dest = Path(args.output)
         if dest.is_dir():
-            dest = dest / (result.filename or "dshare-download")
-        dest.write_bytes(content)
+            dest = dest / filename
+        with open(dest, "wb") as f:
+            _stream_to(f.write, result.stream, total=result.size, desc=filename)
         _info(f"Saved to {dest}")
     elif not sys.stdout.isatty():
-        sys.stdout.buffer.write(content)
+        _stream_to(sys.stdout.buffer.write, result.stream, total=result.size, desc=filename)
     else:
-        dest = Path.cwd() / (result.filename or "dshare-download")
-        dest.write_bytes(content)
+        dest = Path.cwd() / filename
+        with open(dest, "wb") as f:
+            _stream_to(f.write, result.stream, total=result.size, desc=filename)
         _info(f"Saved to {dest}")
     return EXIT_OK
 

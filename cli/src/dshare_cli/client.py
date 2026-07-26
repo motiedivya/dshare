@@ -5,6 +5,10 @@ Talks to the exact same endpoints the web UI's `divya` (upload) and
 CSRF protection is satisfied the same way the browser does it: fetch the
 `csrftoken` cookie from `GET /`, then echo it back as `X-CSRFToken` on
 POSTs.
+
+Uploads/downloads are streamed (not buffered fully in memory) so callers can
+report real transfer progress via an `on_progress(bytes_done, total_or_None)`
+callback — see cli.py for the tqdm wiring.
 """
 
 from __future__ import annotations
@@ -12,9 +16,13 @@ from __future__ import annotations
 import mimetypes
 import os
 from dataclasses import dataclass
+from typing import Callable, Iterator, Optional
 from urllib.parse import unquote, urlparse
 
 import requests
+from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
+
+ProgressCallback = Callable[[int, Optional[int]], None]
 
 
 class DShareError(Exception):
@@ -35,7 +43,8 @@ def _error_detail(resp: requests.Response) -> str:
 class DownloadResult:
     kind: str  # "file" | "text" | "empty"
     filename: str | None = None
-    content: bytes | None = None
+    size: int | None = None  # total bytes, if the server sent Content-Length
+    stream: Iterator[bytes] | None = None  # "file" only — raw chunks, unread
     text: str | None = None
 
 
@@ -82,7 +91,7 @@ class DShareClient:
         resp = self._request("GET", "/")
         return resp.status_code < 500
 
-    def upload_file(self, path: str) -> None:
+    def upload_file(self, path: str, on_progress: ProgressCallback | None = None) -> None:
         if not os.path.isfile(path):
             raise DShareError(f"No such file: {path}")
 
@@ -91,11 +100,19 @@ class DShareClient:
         token = self._csrf_token()
 
         with open(path, "rb") as fh:
+            encoder = MultipartEncoder(fields={"file": (filename, fh, content_type)})
+            total = encoder.len  # encoded multipart size — what bytes_read counts up to
+
+            def _tick(monitor: MultipartEncoderMonitor) -> None:
+                if on_progress:
+                    on_progress(monitor.bytes_read, total)
+
+            monitor = MultipartEncoderMonitor(encoder, _tick)
             resp = self._request(
                 "POST",
                 "/upload/",
-                files={"file": (filename, fh, content_type)},
-                headers={"X-CSRFToken": token},
+                data=monitor,
+                headers={"X-CSRFToken": token, "Content-Type": monitor.content_type},
             )
         self._raise_for_upload(resp)
 
@@ -123,14 +140,21 @@ class DShareClient:
             raise DShareError("Upload failed: unexpected response from server.")
 
     def download(self) -> DownloadResult:
-        resp = self._request("GET", "/download/")
+        resp = self._request("GET", "/download/", stream=True)
         if resp.status_code != 200:
             raise DShareError(f"Download failed (HTTP {resp.status_code}){_error_detail(resp)}")
 
         if resp.history:
-            # Server issued a redirect to the stored file's media URL.
+            # Server issued a redirect to the stored file's media URL. Body
+            # is not read yet (stream=True) — hand back a lazy chunk
+            # iterator so the caller can write it out while reporting
+            # progress, instead of buffering the whole file in memory.
             filename = unquote(os.path.basename(urlparse(resp.url).path)) or "dshare-download"
-            return DownloadResult(kind="file", filename=filename, content=resp.content)
+            size_header = resp.headers.get("content-length")
+            size = int(size_header) if size_header and size_header.isdigit() else None
+            return DownloadResult(
+                kind="file", filename=filename, size=size, stream=self._iter_chunks(resp)
+            )
 
         content_type = resp.headers.get("content-type", "")
         if content_type.startswith("text/plain"):
@@ -143,6 +167,15 @@ class DShareClient:
         if payload.get("status") == "empty":
             return DownloadResult(kind="empty")
         raise DShareError("Unexpected response from server.")
+
+    @staticmethod
+    def _iter_chunks(resp: requests.Response, chunk_size: int = 256 * 1024) -> Iterator[bytes]:
+        try:
+            for chunk in resp.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    yield chunk
+        except requests.exceptions.RequestException as exc:
+            raise DShareError(f"Download interrupted: {exc}") from exc
 
     def clear(self) -> None:
         token = self._csrf_token()
